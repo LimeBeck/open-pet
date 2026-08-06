@@ -17,7 +17,7 @@ extern "C" {
 
 // Версия контракта. Хост обязан сверить её при загрузке: расхождение означает,
 // что ядро и хост собраны из разных версий и работать вместе не должны.
-#define OPENPET_ABI_VERSION 1
+#define OPENPET_ABI_VERSION 2
 
 // Длина ключа cooldown с завершающим нулём. Фиксированный буфер вместо
 // указателя снимает вопрос владения строкой на границе.
@@ -29,6 +29,7 @@ typedef enum {
     OPENPET_EVENT_POWER_CHANGED = 2,
     OPENPET_EVENT_ACTIVE_APP_CHANGED = 3,
     OPENPET_EVENT_PET_CLICKED = 4,
+    OPENPET_EVENT_NOTIFICATION_OCCURRED = 5,
 } OpenPetEventKind;
 
 typedef enum {
@@ -66,6 +67,10 @@ typedef struct {
     // Ядро обязано скопировать то, что ему нужно, и не хранить указатель.
     const char *app_id;
     uintptr_t app_id_len;
+
+    // Только категория, никогда не текст и не отправитель (§4.2).
+    const char *category;
+    uintptr_t category_len;
 } OpenPetEvent;
 
 typedef struct {

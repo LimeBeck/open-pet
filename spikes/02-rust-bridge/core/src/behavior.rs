@@ -41,6 +41,7 @@ pub enum DesktopEvent {
     PowerChanged { on_battery: bool, percent: Option<u8> },
     ActiveAppChanged { app_id: Option<String> },
     PetClicked,
+    NotificationOccurred { category: Option<String> },
 }
 
 #[derive(Debug, Clone)]
@@ -160,6 +161,12 @@ impl StateMachine {
                 priority: Emotion::Happy.priority(),
                 ttl_ms: 2500,
                 cooldown_key: Some("pet_clicked".to_string()),
+            },
+            DesktopEvent::NotificationOccurred { .. } => Reaction {
+                emotion: Emotion::Notification,
+                priority: Emotion::Notification.priority(),
+                ttl_ms: 3500,
+                cooldown_key: Some("notification".to_string()),
             },
         };
 

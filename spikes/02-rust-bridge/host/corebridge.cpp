@@ -172,6 +172,26 @@ bool CoreBridge::pushPetClicked(Reaction *out)
     return true;
 }
 
+bool CoreBridge::pushNotification(const QString &category, Reaction *out)
+{
+    if (!m_core)
+        return false;
+
+    const QByteArray utf8 = category.toUtf8();
+
+    OpenPetEvent event = makeEvent(OPENPET_EVENT_NOTIFICATION_OCCURRED);
+    event.category = utf8.isEmpty() ? nullptr : utf8.constData();
+    event.category_len = size_t(utf8.size());
+
+    OpenPetReaction raw {};
+    if (openpet_core_push_event(m_core, &event, &raw) != 1)
+        return false;
+
+    if (out)
+        *out = fromFfi(raw);
+    return true;
+}
+
 void CoreBridge::startTicker(quint32 intervalMs)
 {
     if (m_core)

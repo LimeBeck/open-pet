@@ -10,6 +10,7 @@
 | Спайк | Вопрос | ADR |
 |---|---|---|
 | [`01-overlay-layershell/`](01-overlay-layershell/) | Layer-shell overlay, анимация QML, input region по силуэту | [ADR-002](../docs/adr/0002-overlay-input-region.md) |
+| [`02-rust-bridge/`](02-rust-bridge/) | Мост Rust↔C++, асинхронность, паника, цена нового события | [ADR-001](../docs/adr/0001-rust-qt-bridge.md) |
 
 Результаты замеров вписываются в разделы «Решение» соответствующих ADR
 и в [`docs/reference-system.md`](../docs/reference-system.md).

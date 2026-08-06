@@ -38,6 +38,7 @@ public:
     bool pushPowerChanged(bool onBattery, int percent, Reaction *out);
     bool pushActiveAppChanged(const QString &appId, Reaction *out);
     bool pushPetClicked(Reaction *out);
+    bool pushNotification(const QString &category, Reaction *out);
 
     // Асинхронный путь: ядро само присылает реакции из своего потока.
     void startTicker(quint32 intervalMs);

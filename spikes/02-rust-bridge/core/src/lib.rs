@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 const COOLDOWN_KEY_SIZE: usize = 32;
 
 const EVENT_ACTIVITY_RESUMED: u32 = 0;
@@ -23,6 +23,7 @@ const EVENT_IDLE_THRESHOLD_REACHED: u32 = 1;
 const EVENT_POWER_CHANGED: u32 = 2;
 const EVENT_ACTIVE_APP_CHANGED: u32 = 3;
 const EVENT_PET_CLICKED: u32 = 4;
+const EVENT_NOTIFICATION_OCCURRED: u32 = 5;
 
 #[repr(C)]
 pub struct FfiEvent {
@@ -34,6 +35,8 @@ pub struct FfiEvent {
     power_state: u32,
     app_id: *const c_char,
     app_id_len: usize,
+    category: *const c_char,
+    category_len: usize,
 }
 
 #[repr(C)]
@@ -156,6 +159,16 @@ unsafe fn to_domain(event: &FfiEvent) -> Option<DesktopEvent> {
             DesktopEvent::ActiveAppChanged { app_id }
         }
         EVENT_PET_CLICKED => DesktopEvent::PetClicked,
+        EVENT_NOTIFICATION_OCCURRED => {
+            let category = if event.category.is_null() || event.category_len == 0 {
+                None
+            } else {
+                let bytes =
+                    std::slice::from_raw_parts(event.category as *const u8, event.category_len);
+                std::str::from_utf8(bytes).ok().map(|s| s.to_string())
+            };
+            DesktopEvent::NotificationOccurred { category }
+        }
         _ => return None,
     };
 

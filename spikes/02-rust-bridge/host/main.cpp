@@ -68,6 +68,20 @@ int main(int argc, char *argv[])
     bridge.pushActiveAppChanged(QStringLiteral("приложение-с-юникодом"), &reaction);
     check(true, "app id в UTF-8 не роняет ядро");
 
+    // Отдельное ядро: на общем активен low_battery с приоритетом 70,
+    // и уведомление было бы подавлено — проверка мерила бы приоритеты,
+    // а не пересечение границы строкой.
+    {
+        CoreBridge fresh;
+        CoreBridge::Reaction notification;
+        check(fresh.pushNotification(QStringLiteral("im"), &notification)
+                  && notification.emotion == 6,
+              "уведомление даёт notification, категория пересекла границу");
+    }
+
+    check(!bridge.pushNotification(QStringLiteral("im"), &reaction),
+          "то же уведомление подавлено активным low_battery");
+
     std::printf("\n=== паника в Rust не должна ронять хост ===\n");
     const int panicResult = bridge.simulatePanic();
     check(panicResult == -2, "паника перехвачена на границе, процесс жив");
