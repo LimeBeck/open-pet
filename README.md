@@ -106,8 +106,9 @@ docs/                      # спецификация, privacy model, ADR
 
 ## Сборка
 
-Пока нечего собирать. Требования к окружению фиксируются в
-[`docs/reference-system.md`](docs/reference-system.md) по итогам M0.
+Продукта пока нет. Собираются только пробы этапа M0 —
+см. [`spikes/`](spikes/README.md). Окружение, на котором снимаются замеры,
+зафиксировано в [`docs/reference-system.md`](docs/reference-system.md).
 
 ## Лицензия
 

@@ -31,3 +31,6 @@ CMakeUserPresets.json
 .env
 .env.*
 !.env.example
+
+# Сборка спайков
+build/

@@ -9,7 +9,7 @@
 |---|---|---|---|
 | [0000](0000-adopt-mvp-roadmap.md) | MVP-спецификация как источник истины | Accepted | — |
 | [0001](0001-rust-qt-bridge.md) | Способ Rust↔Qt bridge | Proposed | M0 |
-| [0002](0002-overlay-input-region.md) | Управление input region интерактивного overlay | Proposed | M0 |
+| [0002](0002-overlay-input-region.md) | Управление input region интерактивного overlay | Accepted | M0 |
 | [0003](0003-kwin-integration.md) | Модель KWin integration и её установка | Proposed | M0 |
 | [0004](0004-notification-observation.md) | Граница наблюдения уведомлений в Plasma | Proposed | M0 |
 
