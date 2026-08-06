@@ -12,5 +12,10 @@
 | [`01-overlay-layershell/`](01-overlay-layershell/) | Layer-shell overlay, анимация QML, input region по силуэту | [ADR-002](../docs/adr/0002-overlay-input-region.md) |
 | [`02-rust-bridge/`](02-rust-bridge/) | Мост Rust↔C++, асинхронность, паника, цена нового события | [ADR-001](../docs/adr/0001-rust-qt-bridge.md) |
 
-Результаты замеров вписываются в разделы «Решение» соответствующих ADR
+Результаты замеров вписаны в разделы «Решение» соответствующих ADR
 и в [`docs/reference-system.md`](../docs/reference-system.md).
+
+**M0 закрыт.** Критерий выхода из §12 — «overlay работает в Plasma Wayland;
+главный FFI-риск снят» — выполнен обоими спайками. ADR-003 и ADR-004 остались
+в статусе `Proposed` и перенесены в M4: они описывают источники событий,
+а не риски M0.

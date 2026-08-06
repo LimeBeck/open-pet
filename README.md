@@ -7,7 +7,8 @@ Desktop AI Pet — постоянно доступный анимированн�
 эмоцию и анимацию, показывает короткие реплики. Работает полностью локально;
 LLM — опциональное дополнение, включаемое явно.
 
-> **Статус:** документация. Кода пока нет, текущий этап — **M0. Technical spikes**.
+> **Статус:** M1, walking skeleton. Приложение собирается, устанавливается
+> и показывает питомца на layer-shell overlay; источники событий — заглушка.
 
 ## Источник истины
 
@@ -26,8 +27,9 @@ LLM — опциональное дополнение, включаемое яв
 |---|---|
 | [`docs/desktop-ai-pet-mvp-spec-roadmap.md`](docs/desktop-ai-pet-mvp-spec-roadmap.md) | Спецификация и roadmap MVP. Источник истины |
 | [`docs/privacy-model.md`](docs/privacy-model.md) | Что наблюдается, что нет, что хранится, что уходит в LLM |
-| [`docs/reference-system.md`](docs/reference-system.md) | Эталонная система для замеров и E2E. Заполняется по итогам M0 |
+| [`docs/reference-system.md`](docs/reference-system.md) | Эталонная система, методика замеров и отклонения от §7 |
 | [`docs/adr/`](docs/adr/README.md) | Принятые архитектурные решения и их процесс |
+| [`spikes/`](spikes/README.md) | Пробы этапа M0 и их результаты |
 | [`AGENTS.md`](AGENTS.md) | Правила работы в репозитории для людей и агентов |
 
 ## Что делает MVP
@@ -52,63 +54,89 @@ LLM — опциональное дополнение, включаемое яв
 ## Архитектура
 
 ```text
-QML UI
-  ↓ UI intents / ViewModel
-Qt/KDE Desktop Host (C++)
-  ├─ LayerShellQt, tray, KIdleTime, D-Bus
-  ├─ KDE Wayland adapters
-  └─ thin Rust bridge
-          ↓ normalized DTO
-Rust Core
-  ├─ behavior/state machine
-  ├─ phrase/template engine
-  ├─ LLM gateway
-  ├─ Pet Pack validation
-  └─ config domain model
+QML UI (ui/qml)
+  ↓ PetViewModel
+Qt/KDE Desktop Host (apps/desktop-kde)
+  ├─ LayerShellQt, tray, input region  (platform/kde-wayland)
+  ├─ адаптеры событий                  (M3–M4, сейчас заглушка)
+  └─ CoreBridge — узкий C ABI          (platform/contracts)
+          ↓ нормализованные DTO
+Rust Core (core)
+  ├─ state machine, приоритеты, cooldown
+  ├─ phrase/template engine   (M2)
+  ├─ LLM gateway              (M6)
+  └─ Pet Pack validation      (M5)
 ```
 
 Платформенные детали живут только в адаптерах; через границу host↔core ходят
-стабильные DTO, не Qt-типы.
+стабильные POD-структуры, не Qt-типы. Правила границы — [ADR-001](docs/adr/0001-rust-qt-bridge.md).
 
-## Целевая структура репозитория
-
-Появляется постепенно, начиная с M1:
+## Структура репозитория
 
 ```text
-apps/desktop-kde/          # entry point, packaging
+apps/desktop-kde/          # entry point, tray, packaging
 ui/qml/                    # общий QML UI
 core/                      # Rust domain core
-platform/contracts/        # capability и DTO-контракты
-platform/kde-wayland/      # Qt/KF6/LayerShellQt adapters
-pet-pack/schema/           # JSON Schema
-pet-pack/validator/        # безопасная проверка пакетов
-assets/builtin-pet/        # встроенный эталонный пакет
-tests/fixtures/            # события и Pet Pack fixtures
+platform/contracts/        # C ABI между хостом и ядром
+platform/kde-wayland/      # LayerShellQt, input region
+spikes/                    # пробы M0
 docs/                      # спецификация, privacy model, ADR
 ```
+
+Каталоги `pet-pack/`, `assets/` и `tests/fixtures/` появятся в M5.
+
+## Сборка
+
+Нужны Qt 6.5+, LayerShellQt, Rust и CMake. Точные версии эталонной системы —
+в [`docs/reference-system.md`](docs/reference-system.md).
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build
+```
+
+Запуск:
+
+```bash
+./build/apps/desktop-kde/open-pet
+```
+
+Тесты домена не требуют ни Qt, ни Wayland, ни дисплея:
+
+```bash
+cargo test --manifest-path core/Cargo.toml
+```
+
+### Диагностика
+
+Логи Qt на Plasma по умолчанию уходят в journald. Чтобы увидеть их в терминале:
+
+```bash
+QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop-kde/open-pet
+```
+
+| Переменная | Действие |
+|---|---|
+| `OPENPET_NO_REGION` | не задавать input region: окно ловит ввод целиком |
+| `OPENPET_NO_TRAY` | не показывать значок в трее |
+
+Питомца нельзя закрыть кликом — у окна нет ни рамки, ни клавиатуры. Выход через
+трей или `pkill -x open-pet`.
 
 ## Этапы
 
 | Этап | Содержание | Статус |
 |---|---|---|
-| M0 | Technical spikes: LayerShellQt, QML animation, KIdleTime, Rust↔C++ bridge | **текущий** |
-| M1 | Walking skeleton: репозиторий, CI, host, tray, встроенный питомец | — |
-| M2 | Behavior core: state machine, приоритеты, cooldown, шаблоны | — |
+| M0 | Technical spikes: LayerShellQt, input region, Rust↔C++ bridge | закрыт |
+| M1 | Walking skeleton: репозиторий, CI, host, tray, встроенный питомец | **текущий** |
+| M2 | Behavior core: шаблонные реплики, история, локализация | — |
 | M3 | KDE base integration: idle, UPower, sleep/resume, session | — |
 | M4 | Context integrations: KWin active-app, MPRIS, уведомления | — |
 | M5 | Pet Pack v1: schema, validator, импорт, локализации | — |
 | M6 | LLM gateway: Ollama, OpenAI-compatible, Vertex AI, secrets | — |
 | M7 | Hardening и alpha: настройки, diagnostics, perf, packaging | — |
 
-Ближайшая работа по §16 спецификации — закрыть spikes и превратить
-[ADR-001…004](docs/adr/README.md) из `Proposed` в `Accepted`, затем пересмотреть
-оценки M1–M7.
-
-## Сборка
-
-Продукта пока нет. Собираются только пробы этапа M0 —
-см. [`spikes/`](spikes/README.md). Окружение, на котором снимаются замеры,
-зафиксировано в [`docs/reference-system.md`](docs/reference-system.md).
+[ADR-003](docs/adr/0003-kwin-integration.md) и [ADR-004](docs/adr/0004-notification-observation.md)
+перенесены в M4: они описывают источники событий, а не риски M0.
 
 ## Лицензия
 

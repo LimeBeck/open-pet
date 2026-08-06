@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=open-pet
+Name[ru]=open-pet
+Comment=Desktop pet that reacts to system events
+Comment[ru]=Питомец на рабочем столе, реагирующий на системные события
+Exec=open-pet
+Icon=face-smile
+Categories=Utility;
+Terminal=false
+# Питомец живёт в overlay и в панели задач не появляется.
+NoDisplay=false
+StartupNotify=false
+X-KDE-Wayland-Interfaces=zwlr_layer_shell_v1

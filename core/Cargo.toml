@@ -1,0 +1,19 @@
+[package]
+name = "openpet-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Domain core for open-pet: behavior state machine and host-facing C ABI"
+
+# Зависимостей нет намеренно: ни сборка, ни тесты не требуют сети.
+# Это условие для CI, а не удобство (ADR-001).
+[dependencies]
+
+[lib]
+name = "openpet_core"
+crate-type = ["staticlib", "rlib"]
+
+[profile.release]
+# panic = "abort" убил бы catch_unwind на границе FFI и вместе с ним весь
+# процесс хоста. Разворачивание стека здесь обязательно (ADR-001, правило 5).
+panic = "unwind"

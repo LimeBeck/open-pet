@@ -10,13 +10,15 @@
 | [0000](0000-adopt-mvp-roadmap.md) | MVP-спецификация как источник истины | Accepted | — |
 | [0001](0001-rust-qt-bridge.md) | Способ Rust↔Qt bridge | Accepted | M0 |
 | [0002](0002-overlay-input-region.md) | Управление input region интерактивного overlay | Accepted | M0 |
-| [0003](0003-kwin-integration.md) | Модель KWin integration и её установка | Proposed | M0 |
-| [0004](0004-notification-observation.md) | Граница наблюдения уведомлений в Plasma | Proposed | M0 |
+| [0003](0003-kwin-integration.md) | Модель KWin integration и её установка | Proposed | M4 |
+| [0004](0004-notification-observation.md) | Граница наблюдения уведомлений в Plasma | Proposed | M4 |
 
 ADR-001…004 заданы §16 спецификации как выход этапа M0. ADR-001 и ADR-002
-закрыты спайками из [`spikes/`](../../spikes/README.md). ADR-003 и ADR-004
-пока содержат только контекст, варианты и критерии выбора — решение вписывается
-по результатам своих проб.
+закрыты спайками из [`spikes/`](../../spikes/README.md).
+
+ADR-003 и ADR-004 перенесены в M4: они описывают источники событий — активное
+приложение и уведомления, — а не риски overlay и FFI, ради снятия которых
+затевался M0. До своих проб они содержат контекст, варианты и критерии выбора.
 
 ## Процесс
 

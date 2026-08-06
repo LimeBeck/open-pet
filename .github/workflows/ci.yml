@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # Ядро проверяется отдельно и первым: у него нет зависимостей, оно не требует
+  # ни Qt, ни Wayland, ни дисплея. Если ломается домен, остальное неважно.
+  core:
+    name: Ядро (Rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Версия toolchain
+        run: rustc --version && cargo --version
+
+      - name: Форматирование
+        run: cargo fmt --manifest-path core/Cargo.toml --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings
+
+      - name: Тесты
+        run: cargo test --manifest-path core/Cargo.toml
+
+  # Сборка хоста. Запустить приложение в CI нельзя — нужен работающий
+  # композитор Wayland с layer-shell, поэтому проверяется только сборка
+  # и установка. Поведение на реальной Plasma проверяется вручную (§11, E2E).
+  desktop:
+    name: Хост (Qt/KDE)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Зависимости
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config \
+            qt6-base-dev qt6-declarative-dev qt6-wayland-dev \
+            liblayershellqtinterface-dev
+
+      - name: Конфигурация
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Сборка
+        run: cmake --build build
+
+      - name: Установка
+        run: cmake --install build --prefix "$PWD/dist"
+
+      - name: Состав пакета
+        run: find dist -type f
