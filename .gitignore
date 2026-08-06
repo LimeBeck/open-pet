@@ -34,3 +34,6 @@ CMakeUserPresets.json
 
 # Сборка спайков
 build/
+
+# Rust
+core/target/

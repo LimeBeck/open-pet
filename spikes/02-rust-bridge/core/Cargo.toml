@@ -1,0 +1,16 @@
+[package]
+name = "openpet_core_spike"
+version = "0.1.0"
+edition = "2021"
+
+# Зависимостей нет намеренно: спайк проверяет границу FFI, а не экосистему.
+# Заодно сборка не требует сети, что важно для CI.
+[dependencies]
+
+[lib]
+crate-type = ["staticlib"]
+
+[profile.release]
+# panic = "abort" убил бы catch_unwind на границе FFI и вместе с ним —
+# весь процесс хоста. Разворачивание стека здесь обязательно.
+panic = "unwind"
