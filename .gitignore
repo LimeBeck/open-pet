@@ -1,0 +1,33 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# CMake / C++ build
+/build/
+/build-*/
+cmake-build-*/
+CMakeUserPresets.json
+
+# Qt
+*.qmlc
+*.jsc
+*.user
+*.user.*
+
+# Локальные конфиги инструментов
+.claude/settings.local.json
+.direnv/
+.envrc.local
+
+# Редакторы и ОС
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Никогда не коммитить: секреты LLM-провайдеров живут в Secret Service/KWallet
+*.pem
+*.key
+.env
+.env.*
+!.env.example
