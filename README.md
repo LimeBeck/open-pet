@@ -134,6 +134,8 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 | `OPENPET_NO_TRAY` | не показывать значок в трее |
 | `OPENPET_IDLE_SECONDS` | порог простоя в секундах: ждать пять минут ради одного события неразумно |
 | `OPENPET_MOCK_EVENTS` | гонять сценарий заглушки — состояния, которых пока не даёт ни один источник |
+| `OPENPET_SETTINGS` | открыть окно настроек сразу при запуске |
+| `OPENPET_LLM` | провайдер: `ollama`, `openai`, `vertex` (обычно настраивается в окне) |
 
 Питомца нельзя закрыть кликом — у окна нет ни рамки, ни клавиатуры. Выход через
 трей или `pkill -x open-pet`.

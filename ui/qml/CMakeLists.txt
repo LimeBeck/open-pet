@@ -17,6 +17,7 @@ qt_add_qml_module(openpet-ui
         Main.qml
         Pet.qml
         Bubble.qml
+        SettingsWindow.qml
     RESOURCES
         ${CMAKE_SOURCE_DIR}/assets/builtin-pet/lime.png
 )

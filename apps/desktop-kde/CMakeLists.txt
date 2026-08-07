@@ -8,6 +8,10 @@ qt_add_executable(open-pet
     src/mockeventsource.h
     src/llmclient.cpp
     src/llmclient.h
+    src/secretstore.cpp
+    src/secretstore.h
+    src/settingscontroller.cpp
+    src/settingscontroller.h
     src/settings.cpp
     src/settings.h
 )
@@ -15,9 +19,11 @@ qt_add_executable(open-pet
 target_link_libraries(open-pet PRIVATE
     Qt6::Quick
     Qt6::Network
+    Qt6::QuickControls2
     # QSystemTrayIcon и QMenu живут в Widgets: трей — единственная причина
     # зависимости, но без него из приложения нечем выйти (§4.1).
     Qt6::Widgets
+    KF6::Wallet
     openpet::core
     openpet::platform-kde
     openpet::ui

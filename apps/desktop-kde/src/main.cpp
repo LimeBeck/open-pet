@@ -10,6 +10,7 @@
 #include "poweradapter.h"
 #include "sessionadapter.h"
 #include "settings.h"
+#include "settingscontroller.h"
 
 #include <QAction>
 #include <QApplication>
@@ -19,7 +20,9 @@
 #include <QLoggingCategory>
 #include <QMenu>
 #include <QQmlApplicationEngine>
+#include <QQmlComponent>
 #include <QQmlContext>
+#include <QQuickStyle>
 #include <QQuickWindow>
 #include <QScreen>
 #include <QSystemTrayIcon>
@@ -96,6 +99,14 @@ int main(int argc, char *argv[])
     // скрыть и вернуть из трея.
     app.setQuitOnLastWindowClosed(false);
 
+    // Стиль Qt Quick Controls по умолчанию не следует системной палитре:
+    // в тёмной теме подписи оказываются тёмными на тёмном и не читаются.
+    // Стиль KDE берёт цвета из системы, поэтому окно настроек выглядит
+    // как остальные окна Plasma.
+    if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE"))
+        QQuickStyle::setStyle(QStringLiteral("org.kde.desktop"));
+    qCInfo(logApp).noquote() << "стиль Quick Controls:" << QQuickStyle::name();
+
     const Settings settings = Settings::load();
 
     CoreBridge core;
@@ -146,8 +157,11 @@ int main(int argc, char *argv[])
     viewModel.setScale(settings.scale);
     viewModel.setReducedMotion(settings.reducedMotion);
 
+    SettingsController settingsController(&core);
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("petModel"), &viewModel);
+    engine.rootContext()->setContextProperty(QStringLiteral("settingsModel"), &settingsController);
     engine.loadFromModule("OpenPet.Ui", "Main");
 
     if (engine.rootObjects().isEmpty()) {
@@ -335,12 +349,18 @@ int main(int argc, char *argv[])
     QObject::connect(&activeAppSource, &ActiveAppAdapter::activeAppChanged,
                      &core, &CoreBridge::pushActiveAppChanged);
 
-    idleSource.start();
-    powerSource.start();
-    sessionSource.start();
-    mediaSource.start();
-    notificationSource.start();
-    activeAppSource.start();
+    if (settings.sourceIdle)
+        idleSource.start();
+    if (settings.sourcePower)
+        powerSource.start();
+    if (settings.sourceSession)
+        sessionSource.start();
+    if (settings.sourceMedia)
+        mediaSource.start();
+    if (settings.sourceNotification)
+        notificationSource.start();
+    if (settings.sourceActiveApp)
+        activeAppSource.start();
 
     if (!ActiveAppAdapter::isScriptInstalled()) {
         qCInfo(logApp).noquote()
@@ -359,6 +379,14 @@ int main(int argc, char *argv[])
     // Диагностический выключатель трея: он тянет за собой стек виджетов,
     // и надо было проверить, не он ли мешает отрисовке overlay.
     const bool trayEnabled = !qEnvironmentVariableIsSet("OPENPET_NO_TRAY");
+
+    QObject::connect(&settingsController, &SettingsController::applied, [&] {
+        const Settings &fresh = settingsController.current();
+        viewModel.setScale(fresh.scale);
+        viewModel.setReducedMotion(fresh.reducedMotion);
+        viewModel.setPaused(fresh.paused);
+        overlay.scheduleRegionUpdate();
+    });
 
     // Трей (§4.1): показать/скрыть, настройки, пауза реакций, выход.
     QSystemTrayIcon tray;
@@ -390,10 +418,31 @@ int main(int argc, char *argv[])
 
     menu.addSeparator();
 
+    // Открытие окна вынесено в функцию: его дёргают и из трея, и из ключа
+    // диагностики, потому что нажать пункт меню из скрипта нельзя.
+    const auto openSettings = [&] {
+        // Окно создаётся по требованию и живёт до закрытия: держать его
+        // в памяти всё время работы ради редкого обращения незачем.
+        static QQmlComponent component(&engine, QUrl(QStringLiteral("qrc:/qt/qml/OpenPet/Ui/SettingsWindow.qml")));
+        static QObject *window = nullptr;
+
+        if (!window) {
+            window = component.create(engine.rootContext());
+            if (!window) {
+                qCWarning(logApp).noquote() << "окно настроек не открылось:" << component.errorString();
+                return;
+            }
+        }
+
+        QMetaObject::invokeMethod(window, "show");
+        QMetaObject::invokeMethod(window, "raise");
+    };
+
     QAction *settingsAction = menu.addAction(QObject::tr("Настройки…"));
-    // Окно настроек — этап M7. Пункт показан неактивным намеренно:
-    // так видно, что он запланирован, а не забыт.
-    settingsAction->setEnabled(false);
+    QObject::connect(settingsAction, &QAction::triggered, openSettings);
+
+    if (qEnvironmentVariableIsSet("OPENPET_SETTINGS"))
+        QTimer::singleShot(0, openSettings);
 
     menu.addSeparator();
 

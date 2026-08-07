@@ -46,11 +46,27 @@ Settings Settings::load()
     settings.reducedMotion = store.value(QStringLiteral("a11y/reducedMotion"), false).toBool();
     settings.idleSeconds = store.value(QStringLiteral("behavior/idleSeconds"), 300).toInt();
 
+    settings.sourceIdle = store.value(QStringLiteral("sources/idle"), true).toBool();
+    settings.sourcePower = store.value(QStringLiteral("sources/power"), true).toBool();
+    settings.sourceSession = store.value(QStringLiteral("sources/session"), true).toBool();
+    settings.sourceMedia = store.value(QStringLiteral("sources/media"), true).toBool();
+    settings.sourceNotification = store.value(QStringLiteral("sources/notification"), true).toBool();
+    settings.sourceActiveApp = store.value(QStringLiteral("sources/activeApp"), true).toBool();
+
+    settings.llmKind = store.value(QStringLiteral("llm/kind"), 0).toInt();
+    settings.llmBaseUrl = store.value(QStringLiteral("llm/baseUrl")).toString();
+    settings.llmModel = store.value(QStringLiteral("llm/model")).toString();
+    settings.llmProject = store.value(QStringLiteral("llm/project")).toString();
+    settings.llmRegion = store.value(QStringLiteral("llm/region")).toString();
+    settings.llmTimeoutMs = store.value(QStringLiteral("llm/timeoutMs"), 2500).toInt();
+
     // Чужие или испорченные значения не должны делать питомца невидимым.
     settings.scale = qBound(0.75, settings.scale, 2.0);
     settings.marginRight = qBound(0, settings.marginRight, 4000);
     settings.marginBottom = qBound(0, settings.marginBottom, 4000);
     settings.idleSeconds = qBound(5, settings.idleSeconds, 3600);
+    settings.llmKind = qBound(0, settings.llmKind, 3);
+    settings.llmTimeoutMs = qBound(500, settings.llmTimeoutMs, 60000);
 
     return settings;
 }
@@ -65,4 +81,27 @@ void Settings::save() const
     store.setValue(QStringLiteral("behavior/paused"), paused);
     store.setValue(QStringLiteral("a11y/reducedMotion"), reducedMotion);
     store.setValue(QStringLiteral("behavior/idleSeconds"), idleSeconds);
+
+    store.setValue(QStringLiteral("sources/idle"), sourceIdle);
+    store.setValue(QStringLiteral("sources/power"), sourcePower);
+    store.setValue(QStringLiteral("sources/session"), sourceSession);
+    store.setValue(QStringLiteral("sources/media"), sourceMedia);
+    store.setValue(QStringLiteral("sources/notification"), sourceNotification);
+    store.setValue(QStringLiteral("sources/activeApp"), sourceActiveApp);
+
+    store.setValue(QStringLiteral("llm/kind"), llmKind);
+    store.setValue(QStringLiteral("llm/baseUrl"), llmBaseUrl);
+    store.setValue(QStringLiteral("llm/model"), llmModel);
+    store.setValue(QStringLiteral("llm/project"), llmProject);
+    store.setValue(QStringLiteral("llm/region"), llmRegion);
+    store.setValue(QStringLiteral("llm/timeoutMs"), llmTimeoutMs);
+}
+
+void Settings::resetLocalData()
+{
+    // Стираются настройки и история показов. Импортированные Pet Pack
+    // не трогаются: §9 требует для них отдельного подтверждения.
+    QSettings store;
+    store.clear();
+    store.sync();
 }

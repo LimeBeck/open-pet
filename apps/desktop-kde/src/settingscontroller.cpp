@@ -1,0 +1,249 @@
+#include "settingscontroller.h"
+
+#include "corebridge.h"
+#include "secretstore.h"
+
+#include <QLoggingCategory>
+
+Q_DECLARE_LOGGING_CATEGORY(logApp)
+
+namespace {
+
+const QString kApiKeyAccount = QStringLiteral("llm-api-key");
+
+QString cornerToString(OverlaySurface::Corner corner)
+{
+    switch (corner) {
+    case OverlaySurface::Corner::BottomLeft:
+        return QStringLiteral("bottom-left");
+    case OverlaySurface::Corner::TopRight:
+        return QStringLiteral("top-right");
+    case OverlaySurface::Corner::TopLeft:
+        return QStringLiteral("top-left");
+    case OverlaySurface::Corner::BottomRight:
+        break;
+    }
+    return QStringLiteral("bottom-right");
+}
+
+OverlaySurface::Corner cornerFromString(const QString &value)
+{
+    if (value == QLatin1String("bottom-left"))
+        return OverlaySurface::Corner::BottomLeft;
+    if (value == QLatin1String("top-right"))
+        return OverlaySurface::Corner::TopRight;
+    if (value == QLatin1String("top-left"))
+        return OverlaySurface::Corner::TopLeft;
+    return OverlaySurface::Corner::BottomRight;
+}
+
+} // namespace
+
+SettingsController::SettingsController(CoreBridge *core, QObject *parent)
+    : QObject(parent)
+    , m_core(core)
+    , m_settings(Settings::load())
+{
+    // Наличие ключа проверяется, само значение не читается: незачем держать
+    // секрет в памяти, пока он не понадобился.
+    m_hasApiKey = SecretStore::isAvailable() && !SecretStore::read(kApiKeyAccount).isEmpty();
+}
+
+QString SettingsController::corner() const
+{
+    return cornerToString(m_settings.corner);
+}
+
+void SettingsController::markDirty(bool needsRestart)
+{
+    if (needsRestart) {
+        // Часть настроек применяется только при следующем запуске.
+        // Говорить об этом честно лучше, чем делать вид, что всё применилось.
+        m_restartNotice =
+            tr("Положение, отступы и источники событий применятся после перезапуска");
+    }
+    emit changed();
+}
+
+void SettingsController::setCorner(const QString &corner)
+{
+    const auto value = cornerFromString(corner);
+    if (m_settings.corner == value)
+        return;
+    m_settings.corner = value;
+    markDirty(true);
+}
+
+void SettingsController::setMarginRight(int value)
+{
+    value = qBound(0, value, 4000);
+    if (m_settings.marginRight == value)
+        return;
+    m_settings.marginRight = value;
+    markDirty(true);
+}
+
+void SettingsController::setMarginBottom(int value)
+{
+    value = qBound(0, value, 4000);
+    if (m_settings.marginBottom == value)
+        return;
+    m_settings.marginBottom = value;
+    markDirty(true);
+}
+
+void SettingsController::setScale(qreal value)
+{
+    // Диапазон §FR-1: 75–200%.
+    value = qBound(0.75, value, 2.0);
+    if (qFuzzyCompare(m_settings.scale, value))
+        return;
+    m_settings.scale = value;
+    markDirty();
+}
+
+void SettingsController::setReducedMotion(bool value)
+{
+    if (m_settings.reducedMotion == value)
+        return;
+    m_settings.reducedMotion = value;
+    markDirty();
+}
+
+void SettingsController::setPaused(bool value)
+{
+    if (m_settings.paused == value)
+        return;
+    m_settings.paused = value;
+    markDirty();
+}
+
+void SettingsController::setIdleSeconds(int value)
+{
+    value = qBound(5, value, 3600);
+    if (m_settings.idleSeconds == value)
+        return;
+    m_settings.idleSeconds = value;
+    markDirty(true);
+}
+
+#define OPENPET_SOURCE_SETTER(Name, Field)                                                         \
+    void SettingsController::set##Name(bool value)                                                 \
+    {                                                                                              \
+        if (m_settings.Field == value)                                                             \
+            return;                                                                                \
+        m_settings.Field = value;                                                                  \
+        markDirty(true);                                                                           \
+    }
+
+OPENPET_SOURCE_SETTER(SourceIdle, sourceIdle)
+OPENPET_SOURCE_SETTER(SourcePower, sourcePower)
+OPENPET_SOURCE_SETTER(SourceSession, sourceSession)
+OPENPET_SOURCE_SETTER(SourceMedia, sourceMedia)
+OPENPET_SOURCE_SETTER(SourceNotification, sourceNotification)
+OPENPET_SOURCE_SETTER(SourceActiveApp, sourceActiveApp)
+
+#undef OPENPET_SOURCE_SETTER
+
+void SettingsController::setLlmKind(int value)
+{
+    value = qBound(0, value, 3);
+    if (m_settings.llmKind == value)
+        return;
+    m_settings.llmKind = value;
+    markDirty();
+}
+
+void SettingsController::setLlmBaseUrl(const QString &value)
+{
+    if (m_settings.llmBaseUrl == value)
+        return;
+    m_settings.llmBaseUrl = value;
+    markDirty();
+}
+
+void SettingsController::setLlmModel(const QString &value)
+{
+    if (m_settings.llmModel == value)
+        return;
+    m_settings.llmModel = value;
+    markDirty();
+}
+
+void SettingsController::setLlmTimeoutMs(int value)
+{
+    value = qBound(500, value, 60000);
+    if (m_settings.llmTimeoutMs == value)
+        return;
+    m_settings.llmTimeoutMs = value;
+    markDirty();
+}
+
+bool SettingsController::secretStorageAvailable() const
+{
+    return SecretStore::isAvailable();
+}
+
+QString SettingsController::payloadPreview() const
+{
+    if (!m_core || m_settings.llmKind == 0)
+        return {};
+
+    // Настройки применяются к ядру временно, чтобы показать настоящее тело
+    // запроса, а не его описание. Пользователь видит ровно то, что уйдёт.
+    m_core->setLlmProvider(m_settings.llmKind, m_settings.llmBaseUrl, m_settings.llmModel,
+                           m_settings.llmProject, m_settings.llmRegion);
+
+    CoreBridge::LlmRequest plan;
+    if (!m_core->buildLlmRequest(&plan)) {
+        return tr("Пример появится после первой реакции питомца: тело запроса "
+                  "строится из неё.");
+    }
+
+    return plan.url + QStringLiteral("\n\n") + plan.body;
+}
+
+bool SettingsController::storeApiKey(const QString &key)
+{
+    const bool stored = SecretStore::store(kApiKeyAccount, key);
+    m_hasApiKey = stored && !key.isEmpty();
+    emit changed();
+    return stored;
+}
+
+bool SettingsController::forgetApiKey()
+{
+    const bool removed = SecretStore::remove(kApiKeyAccount);
+    m_hasApiKey = false;
+    emit changed();
+    return removed;
+}
+
+void SettingsController::apply()
+{
+    m_settings.save();
+
+    if (m_core) {
+        m_core->setPaused(m_settings.paused);
+        // Выключенный провайдер означает ноль сетевых запросов (§7),
+        // поэтому ядру сообщается именно 0, а не «настроен, но не используется».
+        m_core->setLlmProvider(m_settings.llmKind, m_settings.llmBaseUrl, m_settings.llmModel,
+                               m_settings.llmProject, m_settings.llmRegion);
+    }
+
+    emit applied();
+}
+
+void SettingsController::resetLocalData()
+{
+    Settings::resetLocalData();
+
+    if (m_core)
+        m_core->clearPhraseHistory();
+
+    m_settings = Settings::load();
+    m_restartNotice = tr("Локальные данные удалены. Импортированные питомцы остались.");
+
+    emit changed();
+    emit localDataReset();
+}

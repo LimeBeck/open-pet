@@ -12,9 +12,10 @@ set(CMAKE_AUTOMOC ON)
 
 include(GNUInstallDirs)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Qml Quick Widgets DBus Network)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2 Widgets DBus Network)
 find_package(LayerShellQt REQUIRED)
 find_package(KF6IdleTime REQUIRED)
+find_package(KF6Wallet REQUIRED)
 
 qt_standard_project_setup(REQUIRES 6.5)
 
