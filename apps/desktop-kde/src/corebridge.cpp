@@ -206,6 +206,28 @@ void CoreBridge::setLowBatteryThreshold(int percent)
         openpet_core_set_low_battery_threshold(m_core, uint8_t(percent));
 }
 
+CoreBridge::Animation CoreBridge::animationFor(const QString &state) const
+{
+    Animation animation;
+    if (!m_core)
+        return animation;
+
+    const QByteArray utf8 = state.toUtf8();
+    OpenPetAnimation raw {};
+    openpet_core_animation(m_core, utf8.constData(), size_t(utf8.size()), &raw);
+
+    if (raw.frames == 0)
+        return animation;
+
+    animation.row = int(raw.row);
+    animation.startColumn = int(raw.start_column);
+    animation.frames = int(raw.frames);
+    animation.frameDurationMs = int(raw.frame_duration_ms);
+    animation.cellWidth = int(raw.cell_width);
+    animation.cellHeight = int(raw.cell_height);
+    return animation;
+}
+
 void CoreBridge::setLocale(const QString &tag)
 {
     if (!m_core)

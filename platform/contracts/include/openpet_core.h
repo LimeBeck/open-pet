@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define OPENPET_ABI_VERSION 2
+#define OPENPET_ABI_VERSION 3
 
 // Длина ключа cooldown с завершающим нулём.
 #define OPENPET_COOLDOWN_KEY_SIZE 32
@@ -121,6 +121,19 @@ typedef struct {
     char phrase[OPENPET_PHRASE_SIZE];
 } OpenPetReaction;
 
+// Кадры анимации в координатах спрайтового листа.
+//
+// UI спрашивает раскладку у ядра и не хранит собственную таблицу: иначе
+// второй способ отрисовки пришлось бы вживлять в QML (ADR-005).
+typedef struct {
+    uint32_t row;
+    uint32_t start_column;
+    uint32_t frames;
+    uint32_t frame_duration_ms;
+    uint32_t cell_width;
+    uint32_t cell_height;
+} OpenPetAnimation;
+
 typedef struct OpenPetCore OpenPetCore;
 
 // Вызывается из потока ядра, а не из потока UI. Перенос в event loop —
@@ -168,6 +181,11 @@ void openpet_core_set_phrase_history_limit(OpenPetCore *core, uint32_t limit);
 
 // Забыть историю показанных реплик — часть «сбросить локальные данные» (§9).
 void openpet_core_clear_phrase_history(OpenPetCore *core);
+
+// Раскладка кадров для состояния активного Pet Pack. Неизвестное состояние
+// подменяется fallbackAnimation — пустого окна не бывает (§FR-8).
+void openpet_core_animation(OpenPetCore *core, const char *state, uintptr_t state_len,
+                            OpenPetAnimation *out_animation);
 
 #ifdef __cplusplus
 }

@@ -24,9 +24,19 @@ Window {
             id: petView
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
+
+            // Всё, что знает QML о питомце: где лист и какие кадры показывать.
+            // Что именно означает состояние — дело ядра.
+            sheet: petModel.sheetSource
+            cellWidth: petModel.cellWidth
+            cellHeight: petModel.cellHeight
+            row: petModel.animationRow
+            startColumn: petModel.animationStartColumn
+            frames: petModel.animationFrames
+            frameDuration: petModel.animationFrameDuration
+
             // Пауза останавливает реакции, но не замораживает питомца:
             // он остаётся живым, просто перестаёт отзываться (§FR-2).
-            emotion: petModel.emotionName
             animated: !petModel.reducedMotion
         }
 

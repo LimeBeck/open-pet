@@ -65,8 +65,8 @@ Qt/KDE Desktop Host (apps/desktop-kde)
 Rust Core (core)
   ├─ state machine, приоритеты, cooldown
   ├─ каталог реплик, история, локали ru/en
-  ├─ LLM gateway              (M6)
-  └─ Pet Pack validation      (M5)
+  ├─ Pet Pack: разбор, проверка, распаковка, откат
+  └─ LLM gateway              (M6)
 ```
 
 Платформенные детали живут только в адаптерах; через границу host↔core ходят

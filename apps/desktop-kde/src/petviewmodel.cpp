@@ -33,6 +33,7 @@ PetViewModel::PetViewModel(CoreBridge *core, QObject *parent)
         return;
 
     m_emotion = m_core->currentEmotion();
+    m_animation = m_core->animationFor(emotionName());
 
     m_phraseTimer.setSingleShot(true);
     connect(&m_phraseTimer, &QTimer::timeout, this, &PetViewModel::dismissPhrase);
@@ -64,6 +65,10 @@ void PetViewModel::applyEmotion(int emotion)
         return;
 
     m_emotion = emotion;
+    // Раскладка перечитывается вместе с состоянием: при смене Pet Pack
+    // те же состояния могут лежать в других строках листа.
+    if (m_core)
+        m_animation = m_core->animationFor(emotionName());
     emit emotionChanged();
 }
 
@@ -99,6 +104,15 @@ void PetViewModel::setReducedMotion(bool reduced)
 
     m_reducedMotion = reduced;
     emit reducedMotionChanged();
+}
+
+void PetViewModel::setSheetSource(const QUrl &source)
+{
+    if (m_sheetSource == source)
+        return;
+
+    m_sheetSource = source;
+    emit sheetSourceChanged();
 }
 
 void PetViewModel::showPhrase(const QString &text, int ttlMs)

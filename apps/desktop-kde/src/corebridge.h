@@ -51,6 +51,18 @@ public:
     int currentEmotion() const;
     void setLowBatteryThreshold(int percent);
 
+    // Раскладка кадров для состояния. UI не хранит собственную таблицу:
+    // где какая анимация лежит, знает только ядро (ADR-005).
+    struct Animation {
+        int row = 0;
+        int startColumn = 0;
+        int frames = 1;
+        int frameDurationMs = 200;
+        int cellWidth = 0;
+        int cellHeight = 0;
+    };
+    Animation animationFor(const QString &state) const;
+
     // Локаль реплик. Неизвестные теги ядро приводит к английскому (§7).
     void setLocale(const QString &tag);
     void clearPhraseHistory();

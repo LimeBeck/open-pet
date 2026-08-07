@@ -7,13 +7,14 @@
 use crate::behavior::{Reaction, StateMachine, Suppressed};
 use crate::emotion::Emotion;
 use crate::event::{DesktopEvent, MediaState, PowerState, SessionState};
+use crate::petpack::PackStore;
 use crate::phrase::{Locale, PhraseBook};
 
 use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 const COOLDOWN_KEY_SIZE: usize = 32;
 const PHRASE_SIZE: usize = 192;
 
@@ -73,9 +74,21 @@ struct Callbacks {
 unsafe impl Send for Callbacks {}
 unsafe impl Sync for Callbacks {}
 
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct FfiAnimation {
+    row: u32,
+    start_column: u32,
+    frames: u32,
+    frame_duration_ms: u32,
+    cell_width: u32,
+    cell_height: u32,
+}
+
 pub struct Core {
     machine: Mutex<StateMachine>,
     phrases: Mutex<PhraseBook>,
+    packs: Mutex<PackStore>,
     callbacks: Mutex<Callbacks>,
 }
 
@@ -84,6 +97,7 @@ impl Core {
         Self {
             machine: Mutex::new(StateMachine::new()),
             phrases: Mutex::new(PhraseBook::default()),
+            packs: Mutex::new(PackStore::new()),
             callbacks: Mutex::new(Callbacks {
                 reaction: None,
                 log: None,
@@ -468,6 +482,39 @@ pub unsafe extern "C" fn openpet_core_clear_phrase_history(core: *mut Core) {
         if let Ok(mut book) = core.phrases.lock() {
             book.clear_history();
         }
+    }));
+}
+
+/// # Safety
+/// `core` и `out_animation` должны быть валидными указателями, `state` —
+/// строкой длиной `state_len`, живой на время вызова.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_animation(
+    core: *mut Core,
+    state: *const c_char,
+    state_len: usize,
+    out_animation: *mut FfiAnimation,
+) {
+    let (Some(core), Some(slot)) = (core.as_ref(), out_animation.as_mut()) else {
+        return;
+    };
+
+    let name = read_string(state, state_len).unwrap_or_default();
+
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let Ok(packs) = core.packs.lock() else { return };
+        let pack = packs.active();
+        let frames = pack.animation(&name);
+        let (cell_width, cell_height) = pack.grid_cell();
+
+        *slot = FfiAnimation {
+            row: frames.row,
+            start_column: frames.start_column,
+            frames: frames.frames,
+            frame_duration_ms: frames.frame_duration_ms,
+            cell_width,
+            cell_height,
+        };
     }));
 }
 

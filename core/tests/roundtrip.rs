@@ -6,8 +6,7 @@
 use openpet_core::petpack::{extract, validate, ArchiveLimits, Limits, Manifest};
 
 fn pack_bytes() -> Vec<u8> {
-    let path = std::env::var("OPENPET_TEST_PACK")
-        .unwrap_or_else(|_| String::from("/nonexistent"));
+    let path = std::env::var("OPENPET_TEST_PACK").unwrap_or_else(|_| String::from("/nonexistent"));
     std::fs::read(path).unwrap_or_default()
 }
 
