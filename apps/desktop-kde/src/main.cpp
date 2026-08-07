@@ -1,3 +1,4 @@
+#include "activeappadapter.h"
 #include "corebridge.h"
 #include "idleadapter.h"
 #include "mediaadapter.h"
@@ -304,11 +305,24 @@ int main(int argc, char *argv[])
                          core.pushNotification(QString());
                      });
 
+    ActiveAppAdapter activeAppSource;
+    reportCapability(&activeAppSource);
+    QObject::connect(&activeAppSource, &ActiveAppAdapter::activeAppChanged,
+                     &core, &CoreBridge::pushActiveAppChanged);
+
     idleSource.start();
     powerSource.start();
     sessionSource.start();
     mediaSource.start();
     notificationSource.start();
+    activeAppSource.start();
+
+    if (!ActiveAppAdapter::isScriptInstalled()) {
+        qCInfo(logApp).noquote()
+            << QStringLiteral("активное приложение недоступно: KWin-скрипт не установлен. "
+                              "Установка — %1")
+                   .arg(ActiveAppAdapter::scriptInstallPath());
+    }
 
     // Заглушка остаётся доступной для проверки состояний, которых не даёт
     // ни один настоящий источник: активное приложение, уведомления и медиа

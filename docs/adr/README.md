@@ -10,7 +10,7 @@
 | [0000](0000-adopt-mvp-roadmap.md) | MVP-спецификация как источник истины | Accepted | — |
 | [0001](0001-rust-qt-bridge.md) | Способ Rust↔Qt bridge | Accepted | M0 |
 | [0002](0002-overlay-input-region.md) | Управление input region интерактивного overlay | Accepted | M0 |
-| [0003](0003-kwin-integration.md) | Модель KWin integration и её установка | Proposed | M4 |
+| [0003](0003-kwin-integration.md) | Модель KWin integration и её установка | Accepted | M4 |
 | [0004](0004-notification-observation.md) | Граница наблюдения уведомлений в Plasma | Accepted | M4 |
 | [0005](0005-pet-pack-sprite-sheet.md) | Формат Pet Pack: спрайтовый лист против отдельных файлов | Proposed | M5 |
 | [0006](0006-memory-metric.md) | Метрика памяти в §7: RSS или Private_Dirty | Accepted | M1 |

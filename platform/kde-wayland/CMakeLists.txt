@@ -10,6 +10,7 @@ add_library(openpet-platform-kde STATIC
     src/sessionadapter.cpp
     src/mediaadapter.cpp
     src/notificationadapter.cpp
+    src/activeappadapter.cpp
     include/overlaysurface.h
     include/inputregion.h
     include/eventsource.h
@@ -18,6 +19,7 @@ add_library(openpet-platform-kde STATIC
     include/sessionadapter.h
     include/mediaadapter.h
     include/notificationadapter.h
+    include/activeappadapter.h
 )
 
 target_include_directories(openpet-platform-kde PUBLIC include)
@@ -30,3 +32,11 @@ target_link_libraries(openpet-platform-kde PUBLIC
 )
 
 add_library(openpet::platform-kde ALIAS openpet-platform-kde)
+
+# KWin-скрипт ставится в каталог пользователя отдельным действием, а не при
+# установке приложения: §FR-3 требует, чтобы интеграция была явно
+# устанавливаемой. Здесь он только кладётся в общий каталог данных, откуда
+# приложение предложит его установить.
+install(DIRECTORY kwin-script/
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/open-pet/kwin-script
+)

@@ -7,9 +7,8 @@ Desktop AI Pet — постоянно доступный анимированн�
 эмоцию и анимацию, показывает короткие реплики. Работает полностью локально;
 LLM — опциональное дополнение, включаемое явно.
 
-> **Статус:** M3. Питомец реагирует на настоящие события системы —
-> простой, питание, сон и блокировку. Активное приложение, уведомления
-> и медиа появятся в M4.
+> **Статус:** M4. Питомец реагирует на простой, питание, сон, блокировку,
+> воспроизведение медиа, уведомления и смену активного приложения.
 
 ## Источник истины
 
@@ -146,12 +145,31 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 | Питание | UPower по системной шине | флаг сети, процент, состояние заряда | M3 |
 | Сон и пробуждение | `org.freedesktop.login1` | `PrepareForSleep` | M3 |
 | Блокировка экрана | `org.freedesktop.ScreenSaver` | `ActiveChanged` | M3 |
-| Активное приложение | KWin module | нормализованный app id | M4, [ADR-003](docs/adr/0003-kwin-integration.md) |
-| Уведомления | под вопросом | факт события | M4, [ADR-004](docs/adr/0004-notification-observation.md) |
-| Медиа | MPRIS | `playing`/`paused`/`stopped` | M4 |
+| Медиа | MPRIS | `playing`/`paused`/`stopped` | M3 |
+| Уведомления | `NotificationClosed` штатного сервера | факт события, без категории | M4, [ADR-004](docs/adr/0004-notification-observation.md) |
+| Активное приложение | KWin-скрипт + свой сервис D-Bus | нормализованный app id | M4, [ADR-003](docs/adr/0003-kwin-integration.md) |
 
 Каждый источник публикует состояние здоровья (§FR-4). Недоступность —
 штатная ситуация: приложение работает без этой capability, а не падает.
+
+Уведомления навсегда остаются `degraded`: наблюдается закрытие уведомления,
+а не появление — сигнала о появлении в протоколе freedesktop нет вовсе.
+
+### Активное приложение
+
+Обычный клиент Wayland не наблюдает чужие окна, поэтому наблюдатель живёт
+внутри композитора. KWin-скрипт ставится **отдельно и осознанно** — приложение
+не трогает конфигурацию рабочего стола само:
+
+```bash
+cp -r platform/kde-wayland/kwin-script ~/.local/share/kwin/scripts/openpet-active-window
+kwriteconfig6 --file kwinrc --group Plugins --key openpet-active-windowEnabled true
+qdbus6 org.kde.KWin /KWin reconfigure
+```
+
+Пока скрипт не установлен, источник сообщает `permission_required`, а остальные
+реакции работают как обычно. Скрипт передаёт только `resourceClass` вида
+`org.kde.konsole` — заголовок окна не передаётся и не должен быть туда добавлен.
 
 ## Этапы
 
@@ -160,14 +178,15 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 | M0 | Technical spikes: LayerShellQt, input region, Rust↔C++ bridge | закрыт |
 | M1 | Walking skeleton: репозиторий, CI, host, tray, встроенный питомец | закрыт |
 | M2 | Behavior core: шаблонные реплики, история, локализация | закрыт |
-| M3 | KDE base integration: idle, UPower, sleep/resume, session | **текущий** |
-| M4 | Context integrations: KWin active-app, MPRIS, уведомления | — |
+| M3 | KDE base integration: idle, UPower, sleep/resume, session | закрыт |
+| M4 | Context integrations: KWin active-app, MPRIS, уведомления | **текущий** |
 | M5 | Pet Pack v1: schema, validator, импорт, локализации | — |
 | M6 | LLM gateway: Ollama, OpenAI-compatible, Vertex AI, secrets | — |
 | M7 | Hardening и alpha: настройки, diagnostics, perf, packaging | — |
 
-[ADR-003](docs/adr/0003-kwin-integration.md) и [ADR-004](docs/adr/0004-notification-observation.md)
-перенесены в M4: они описывают источники событий, а не риски M0.
+Все шесть ADR по источникам и архитектуре приняты. Открытым остаётся
+[ADR-005](docs/adr/0005-pet-pack-sprite-sheet.md) — формат Pet Pack,
+решать до M5.
 
 ## Лицензия
 

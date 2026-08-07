@@ -1,0 +1,14 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Description": "Sends only the active application id to open-pet",
+        "Description[ru]": "Сообщает open-pet только идентификатор активного приложения",
+        "EnabledByDefault": false,
+        "Id": "openpet-active-window",
+        "License": "MIT",
+        "Name": "open-pet active window",
+        "Name[ru]": "open-pet: активное окно",
+        "Version": "0.1.0"
+    },
+    "X-Plasma-API": "declarativescript"
+}
