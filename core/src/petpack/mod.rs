@@ -7,8 +7,10 @@
 //! Проверка формата и проверка содержания дают разные сообщения, потому что
 //! пользователю нужно понимать, что чинить.
 
+pub mod archive;
 pub mod manifest;
 pub mod validate;
 
+pub use archive::{extract, ArchiveLimits, ExtractedPack};
 pub use manifest::{Manifest, ManifestError};
 pub use validate::{validate, Finding, Limits, Report, Severity};

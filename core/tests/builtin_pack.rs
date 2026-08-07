@@ -13,7 +13,10 @@ const SHEET_WIDTH: u32 = 1536;
 const SHEET_HEIGHT: u32 = 2288;
 
 fn builtin_manifest() -> Manifest {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../assets/builtin-pet/manifest.json");
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../assets/builtin-pet/manifest.json"
+    );
     let raw = std::fs::read(path).expect("манифест встроенного питомца читается");
     Manifest::parse(&raw).expect("манифест встроенного питомца разбирается")
 }
@@ -29,7 +32,10 @@ fn builtin_pet_passes_its_own_validator() {
         "встроенный питомец не проходит валидатор: {problems:?}"
     );
     assert!(
-        !report.findings.iter().any(|f| f.severity == Severity::Warning),
+        !report
+            .findings
+            .iter()
+            .any(|f| f.severity == Severity::Warning),
         "у встроенного питомца не должно быть даже предупреждений: {problems:?}"
     );
 }
@@ -38,8 +44,14 @@ fn builtin_pet_passes_its_own_validator() {
 fn builtin_pet_declares_every_state() {
     let manifest = builtin_manifest();
     for state in [
-        "idle", "happy", "curious", "sleepy",
-        "charging", "low_battery", "notification", "busy",
+        "idle",
+        "happy",
+        "curious",
+        "sleepy",
+        "charging",
+        "low_battery",
+        "notification",
+        "busy",
     ] {
         assert!(
             manifest.animations.contains_key(state),

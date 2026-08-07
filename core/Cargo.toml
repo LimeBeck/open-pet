@@ -11,6 +11,9 @@ description = "Domain core for open-pet: behavior state machine and host-facing 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Распаковка чужого архива — тот же случай, что и разбор чужого JSON
+# (ADR-007): свой распаковщик zip опаснее чужого проверенного.
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 [lib]
 name = "openpet_core"
