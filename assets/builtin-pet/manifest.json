@@ -1,4 +1,6 @@
 {
+  "schemaVersion": 1,
+  "renderer": "sprite-sheet",
   "id": "dev.limebeck.lime",
   "name": "Лайм",
   "description": "Пиксельный зелёный лис в тёмном худи",
@@ -22,6 +24,7 @@
     "notification": { "row": 6,  "startColumn": 0, "frames": 6, "frameDurationMs": 160 },
     "busy":         { "row": 7,  "startColumn": 0, "frames": 6, "frameDurationMs": 200 }
   },
+  "locales": ["ru", "en"],
   "unusedRows": {
     "1": "running-right — перемещение по экрану, P1",
     "2": "running-left — перемещение по экрану, P1",

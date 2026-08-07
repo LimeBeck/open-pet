@@ -5,9 +5,12 @@ edition = "2021"
 license = "MIT"
 description = "Domain core for open-pet: behavior state machine and host-facing C ABI"
 
-# Зависимостей нет намеренно: ни сборка, ни тесты не требуют сети.
-# Это условие для CI, а не удобство (ADR-001).
+# Ядро не тянет зависимости ради удобства. Исключение — разбор недоверенного
+# ввода: свой парсер JSON для чужого manifest.json опаснее чужого проверенного
+# (ADR-007). Каждое новое исключение обосновывается отдельно.
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [lib]
 name = "openpet_core"

@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-pet.dev/schema/pet-pack/v1/manifest.schema.json",
+  "title": "Pet Pack v1 manifest",
+  "description": "Схема манифеста Pet Pack v1. Соответствует §FR-8 спецификации и ADR-005. Схема описывает форму документа; смысловые проверки — попадание кадров в сетку, доля объявленной площади, соответствие сетки файлу — выполняет валидатор в ядре, потому что они требуют знать размеры самого листа.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "renderer",
+    "id",
+    "name",
+    "version",
+    "sheet",
+    "grid",
+    "animations",
+    "fallbackAnimation"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "description": "Версия схемы. Неизвестное значение отвергается с внятным сообщением, а не разбирается по догадке.",
+      "type": "integer",
+      "const": 1
+    },
+    "renderer": {
+      "description": "Способ отрисовки. В v1 значение одно, но поле обязательно: без явного дискриминатора добавление второго формата превратится в угадывание по расширению файла (ADR-005).",
+      "type": "string",
+      "enum": ["sprite-sheet"]
+    },
+    "id": {
+      "description": "Устойчивый идентификатор пакета в обратной доменной записи.",
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 128,
+      "pattern": "^[a-zA-Z0-9]([a-zA-Z0-9._-]*[a-zA-Z0-9])?$"
+    },
+    "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "description": { "type": "string", "maxLength": 512 },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "sheet": {
+      "description": "Имя файла листа внутри пакета. Только имя: подкаталоги и переходы вверх запрещены, чтобы через это поле нельзя было выйти за пределы пакета.",
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9._-]+\\.png$",
+      "maxLength": 128
+    },
+    "sheetSha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "grid": {
+      "type": "object",
+      "required": ["columns", "rows", "cellWidth", "cellHeight"],
+      "properties": {
+        "columns": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "rows": { "type": "integer", "minimum": 1, "maximum": 256 },
+        "cellWidth": { "type": "integer", "minimum": 8, "maximum": 2048 },
+        "cellHeight": { "type": "integer", "minimum": 8, "maximum": 2048 }
+      }
+    },
+    "animations": {
+      "description": "Анимации по именам состояний §4.1. Несколько состояний могут делить одну строку с разным startColumn.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 64,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["row", "frames", "frameDurationMs"],
+        "properties": {
+          "row": { "type": "integer", "minimum": 0, "maximum": 255 },
+          "startColumn": { "type": "integer", "minimum": 0, "maximum": 255, "default": 0 },
+          "frames": { "type": "integer", "minimum": 1, "maximum": 256 },
+          "frameDurationMs": { "type": "integer", "minimum": 20, "maximum": 10000 }
+        }
+      },
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{0,31}$"
+      }
+    },
+    "fallbackAnimation": {
+      "description": "Чем подменяются необъявленные состояния. Обязана присутствовать среди animations.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,31}$"
+    },
+    "locales": {
+      "type": "array",
+      "maxItems": 32,
+      "items": { "type": "string", "pattern": "^[a-z]{2}([_-][A-Za-z]{2,4})?$" }
+    },
+    "unusedRows": {
+      "description": "Пояснения к незанятым строкам листа. Только для людей; на проверки не влияет.",
+      "type": "object",
+      "additionalProperties": { "type": "string", "maxLength": 256 }
+    }
+  }
+}

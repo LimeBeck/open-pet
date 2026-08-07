@@ -14,6 +14,7 @@
 | [0004](0004-notification-observation.md) | Граница наблюдения уведомлений в Plasma | Accepted | M4 |
 | [0005](0005-pet-pack-sprite-sheet.md) | Формат Pet Pack: спрайтовый лист против отдельных файлов | Accepted | M5 |
 | [0006](0006-memory-metric.md) | Метрика памяти в §7: RSS или Private_Dirty | Accepted | M1 |
+| [0007](0007-untrusted-json-parsing.md) | Разбор недоверенного JSON: зависимость против своего парсера | Accepted | M5 |
 
 ADR-001…004 заданы §16 спецификации как выход этапа M0. ADR-001 и ADR-002
 закрыты спайками из [`spikes/`](../../spikes/README.md).

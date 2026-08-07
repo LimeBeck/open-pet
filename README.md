@@ -81,11 +81,12 @@ core/                      # Rust domain core
 platform/contracts/        # C ABI между хостом и ядром
 platform/kde-wayland/      # LayerShellQt, input region
 assets/builtin-pet/        # встроенный питомец Лайм
+pet-pack/schema/           # JSON Schema манифеста Pet Pack v1
 spikes/                    # пробы M0
 docs/                      # спецификация, privacy model, ADR
 ```
 
-Каталоги `pet-pack/` и `tests/fixtures/` появятся в M5.
+Каталог `tests/fixtures/` появится вместе с импортом пакетов.
 
 ## Встроенный питомец
 
