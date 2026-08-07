@@ -28,6 +28,12 @@ jobs:
             qt6-base qt6-declarative qt6-wayland \
             layer-shell-qt kidletime kwallet
 
+      # Контейнер работает от root, а каталог checkout принадлежит другому
+      # пользователю: git считает такой репозиторий подозрительным и отказывается
+      # с ним работать, а gh спрашивает у git, куда публиковать.
+      - name: Доверие к каталогу сборки
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - uses: actions/checkout@v4
 
       # Тег и версия проекта обязаны совпадать. Разойдясь однажды, они
@@ -93,7 +99,10 @@ jobs:
           поверхности, и без неё приложение не запустится.
           NOTES
 
+          # --repo задан явно: так публикация не зависит от того, сумел ли gh
+          # опознать репозиторий по состоянию git в контейнере.
           gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --notes-file notes.md \
             --generate-notes \
