@@ -10,6 +10,7 @@ Q_DECLARE_LOGGING_CATEGORY(logApp)
 namespace {
 
 const QString kApiKeyAccount = QStringLiteral("llm-api-key");
+const QString kProxyPasswordAccount = QStringLiteral("proxy-password");
 
 QString cornerToString(OverlaySurface::Corner corner)
 {
@@ -177,6 +178,55 @@ void SettingsController::setLlmTimeoutMs(int value)
         return;
     m_settings.llmTimeoutMs = value;
     markDirty();
+}
+
+void SettingsController::setProxyMode(int value)
+{
+    value = qBound(0, value, 2);
+    if (m_settings.proxyMode == value)
+        return;
+    m_settings.proxyMode = value;
+    markDirty();
+}
+
+void SettingsController::setProxyHost(const QString &value)
+{
+    if (m_settings.proxyHost == value)
+        return;
+    m_settings.proxyHost = value;
+    markDirty();
+}
+
+void SettingsController::setProxyPort(int value)
+{
+    value = qBound(0, value, 65535);
+    if (m_settings.proxyPort == value)
+        return;
+    m_settings.proxyPort = value;
+    markDirty();
+}
+
+void SettingsController::setProxyUser(const QString &value)
+{
+    if (m_settings.proxyUser == value)
+        return;
+    m_settings.proxyUser = value;
+    markDirty();
+}
+
+void SettingsController::setProxyBypassLocal(bool value)
+{
+    if (m_settings.proxyBypassLocal == value)
+        return;
+    m_settings.proxyBypassLocal = value;
+    markDirty();
+}
+
+bool SettingsController::storeProxyPassword(const QString &password)
+{
+    const bool stored = SecretStore::store(kProxyPasswordAccount, password);
+    emit changed();
+    return stored;
 }
 
 bool SettingsController::secretStorageAvailable() const

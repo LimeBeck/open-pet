@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QNetworkAccessManager>
+#include <QNetworkProxy>
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -26,6 +27,10 @@ public:
     // В настройки и в журнал он не попадает никогда (§FR-7).
     void setApiKey(const QString &key);
 
+    // Прокси: 0 — системный, 1 — без прокси, 2 — заданный вручную.
+    void setProxy(int mode, const QString &host, int port, const QString &user,
+                  const QString &password, bool bypassLocal);
+
     // Запрашивает реплику для последней реакции. Если LLM выключена или
     // ядру нечего спросить, сигнал не придёт вовсе.
     void requestPhrase();
@@ -43,5 +48,8 @@ private:
     CoreBridge *m_core = nullptr;
     QNetworkAccessManager m_network;
     QString m_apiKey;
+    int m_proxyMode = 0;
+    QNetworkProxy m_manualProxy;
+    bool m_proxyBypassLocal = true;
     QPointer<QNetworkReply> m_inFlight;
 };

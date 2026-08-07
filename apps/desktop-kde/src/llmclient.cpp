@@ -4,6 +4,7 @@
 
 #include <QLoggingCategory>
 #include <QNetworkProxy>
+#include <QNetworkProxyFactory>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QTimer>
@@ -27,6 +28,21 @@ bool LlmClient::isEnabled() const
 void LlmClient::setApiKey(const QString &key)
 {
     m_apiKey = key;
+}
+
+void LlmClient::setProxy(int mode, const QString &host, int port, const QString &user,
+                         const QString &password, bool bypassLocal)
+{
+    m_proxyMode = mode;
+    m_proxyBypassLocal = bypassLocal;
+
+    m_manualProxy = QNetworkProxy(QNetworkProxy::HttpProxy, host, quint16(port), user, password);
+
+    if (mode == 0) {
+        // Системная настройка. Прокси берётся из окружения и настроек KDE —
+        // приложение не изобретает свою политику там, где она уже задана.
+        QNetworkProxyFactory::setUseSystemConfiguration(true);
+    }
 }
 
 void LlmClient::requestPhrase()
@@ -60,14 +76,29 @@ void LlmClient::requestPhrase()
 
     QNetworkRequest request { url };
 
-    // Локальный провайдер не ходит через прокси. Ollama на 127.0.0.1 —
-    // основной сценарий приватного режима, и заворачивать её во внешний
-    // прокси значит отправлять наружу то, что должно остаться дома.
+    // Локальный провайдер не ходит через прокси, пока пользователь явно
+    // не потребовал обратного. Ollama на 127.0.0.1 — основной сценарий
+    // приватного режима, и заворачивать её во внешний прокси значит
+    // отправлять наружу то, что должно остаться дома.
     const QString host = url.host();
-    if (host == QLatin1String("127.0.0.1") || host == QLatin1String("localhost")
-        || host == QLatin1String("::1")) {
-        request.setAttribute(QNetworkRequest::UseCredentialsAttribute, false);
+    const bool isLocal = host == QLatin1String("127.0.0.1") || host == QLatin1String("localhost")
+        || host == QLatin1String("::1") || host.endsWith(QLatin1String(".localhost"));
+
+    if (isLocal && m_proxyBypassLocal) {
         m_network.setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
+    } else {
+        switch (m_proxyMode) {
+        case 1:
+            m_network.setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
+            break;
+        case 2:
+            m_network.setProxy(m_manualProxy);
+            break;
+        default:
+            // Системный: сбрасываем свой прокси, дальше решает фабрика Qt.
+            m_network.setProxy(QNetworkProxy(QNetworkProxy::DefaultProxy));
+            break;
+        }
     }
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     // Таймаут считает хост (ADR-008). Значение ядра — разумное умолчание,

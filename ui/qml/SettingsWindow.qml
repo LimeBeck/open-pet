@@ -276,6 +276,98 @@ Window {
 
             MenuSeparator { Layout.fillWidth: true }
 
+            // --- Прокси ---
+            Label { text: qsTr("Прокси"); font.bold: true }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                opacity: 0.75
+                text: qsTr("Действует только на запросы к провайдеру: других сетевых "
+                           + "обращений приложение не делает.")
+            }
+
+            GridLayout {
+                columns: 2
+                columnSpacing: 12
+                rowSpacing: 8
+                Layout.fillWidth: true
+
+                Label { text: qsTr("Режим") }
+                ComboBox {
+                    Layout.fillWidth: true
+                    model: [qsTr("Системный"), qsTr("Без прокси"), qsTr("Указать вручную")]
+                    currentIndex: root.model.proxyMode
+                    onActivated: root.model.proxyMode = currentIndex
+                }
+
+                Label { text: qsTr("Адрес"); visible: root.model.proxyMode === 2 }
+                TextField {
+                    Layout.fillWidth: true
+                    visible: root.model.proxyMode === 2
+                    placeholderText: "proxy.example.com"
+                    text: root.model.proxyHost
+                    onEditingFinished: root.model.proxyHost = text
+                }
+
+                Label { text: qsTr("Порт"); visible: root.model.proxyMode === 2 }
+                SpinBox {
+                    visible: root.model.proxyMode === 2
+                    from: 0; to: 65535
+                    value: root.model.proxyPort
+                    onValueModified: root.model.proxyPort = value
+                }
+
+                Label { text: qsTr("Пользователь"); visible: root.model.proxyMode === 2 }
+                TextField {
+                    Layout.fillWidth: true
+                    visible: root.model.proxyMode === 2
+                    text: root.model.proxyUser
+                    onEditingFinished: root.model.proxyUser = text
+                }
+
+                Label { text: qsTr("Пароль"); visible: root.model.proxyMode === 2 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: root.model.proxyMode === 2
+
+                    TextField {
+                        id: proxyPasswordField
+                        Layout.fillWidth: true
+                        echoMode: TextInput.Password
+                        enabled: root.model.secretStorageAvailable
+                        placeholderText: root.model.secretStorageAvailable
+                            ? qsTr("хранится в KWallet")
+                            : qsTr("KWallet недоступен")
+                    }
+                    Button {
+                        text: qsTr("Сохранить")
+                        enabled: root.model.secretStorageAvailable
+                                 && proxyPasswordField.text.length > 0
+                        onClicked: {
+                            root.model.storeProxyPassword(proxyPasswordField.text)
+                            proxyPasswordField.text = ""
+                        }
+                    }
+                }
+            }
+
+            CheckBox {
+                text: qsTr("Локальные адреса мимо прокси")
+                checked: root.model.proxyBypassLocal
+                onToggled: root.model.proxyBypassLocal = checked
+            }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                opacity: 0.75
+                visible: root.model.proxyBypassLocal
+                text: qsTr("Ollama на 127.0.0.1 — приватный сценарий: заворачивать её "
+                           + "во внешний прокси значит отправлять наружу то, "
+                           + "что должно остаться дома.")
+            }
+
+            MenuSeparator { Layout.fillWidth: true }
+
             // --- Локальные данные (§9) ---
             Label { text: qsTr("Локальные данные"); font.bold: true }
             RowLayout {

@@ -6,8 +6,8 @@ on:
   pull_request:
 
 jobs:
-  # Ядро проверяется отдельно и первым: у него нет зависимостей, оно не требует
-  # ни Qt, ни Wayland, ни дисплея. Если ломается домен, остальное неважно.
+  # Ядро проверяется отдельно и первым: у него нет зависимостей от Qt,
+  # Wayland и дисплея. Если ломается домен, остальное неважно.
   core:
     name: Ядро (Rust)
     runs-on: ubuntu-latest
@@ -26,22 +26,37 @@ jobs:
       - name: Тесты
         run: cargo test --manifest-path core/Cargo.toml
 
-  # Сборка хоста. Запустить приложение в CI нельзя — нужен работающий
-  # композитор Wayland с layer-shell, поэтому проверяется только сборка
-  # и установка. Поведение на реальной Plasma проверяется вручную (§11, E2E).
+  # Сборка хоста идёт в контейнере Arch, а не на ubuntu-latest.
+  #
+  # Причина не во вкусах: эталонная система проекта — Arch с Plasma 6.7
+  # и Qt 6.11, а KF6 и LayerShellQt в Ubuntu отстают на версии и меняют
+  # имена пакетов между выпусками. Сборка на том же наборе версий, что
+  # у разработчика, ловит расхождения, а не создаёт их.
+  #
+  # Запустить приложение здесь нельзя — нужен живой композитор Wayland
+  # с layer-shell. Проверяется сборка и установка; поведение на реальной
+  # Plasma проверяется вручную (§11, E2E).
   desktop:
     name: Хост (Qt/KDE)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
     steps:
-      - uses: actions/checkout@v4
-
+      # git ставится до checkout: без него actions/checkout сваливается
+      # на скачивание архива и теряет историю.
       - name: Зависимости
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build pkg-config \
-            qt6-base-dev qt6-declarative-dev qt6-wayland-dev \
-            liblayershellqtinterface-dev
+          pacman -Syu --noconfirm --needed \
+            git cmake ninja rust \
+            qt6-base qt6-declarative qt6-wayland \
+            layer-shell-qt kidletime kwallet
+
+      - uses: actions/checkout@v4
+
+      - name: Версии
+        run: |
+          cmake --version | head -1
+          rustc --version
+          pacman -Q qt6-base layer-shell-qt kidletime kwallet
 
       - name: Конфигурация
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo

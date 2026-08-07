@@ -38,6 +38,16 @@ struct Settings {
     QString llmRegion;
     int llmTimeoutMs = 2500;
 
+    // Прокси. 0 — системный, 1 — без прокси, 2 — заданный вручную.
+    // Пароль прокси, если понадобится, пойдёт в KWallet, а не сюда (§FR-7).
+    int proxyMode = 0;
+    QString proxyHost;
+    int proxyPort = 0;
+    QString proxyUser;
+    // Локальные адреса мимо прокси. Ollama на 127.0.0.1 — основной сценарий
+    // приватного режима, и заворачивать её наружу недопустимо.
+    bool proxyBypassLocal = true;
+
     // Сбросить локальные данные (§9): настройки и история. Импортированные
     // Pet Pack не трогаются без отдельного подтверждения.
     static void resetLocalData();

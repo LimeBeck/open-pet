@@ -60,6 +60,12 @@ Settings Settings::load()
     settings.llmRegion = store.value(QStringLiteral("llm/region")).toString();
     settings.llmTimeoutMs = store.value(QStringLiteral("llm/timeoutMs"), 2500).toInt();
 
+    settings.proxyMode = store.value(QStringLiteral("proxy/mode"), 0).toInt();
+    settings.proxyHost = store.value(QStringLiteral("proxy/host")).toString();
+    settings.proxyPort = store.value(QStringLiteral("proxy/port"), 0).toInt();
+    settings.proxyUser = store.value(QStringLiteral("proxy/user")).toString();
+    settings.proxyBypassLocal = store.value(QStringLiteral("proxy/bypassLocal"), true).toBool();
+
     // Чужие или испорченные значения не должны делать питомца невидимым.
     settings.scale = qBound(0.75, settings.scale, 2.0);
     settings.marginRight = qBound(0, settings.marginRight, 4000);
@@ -67,6 +73,8 @@ Settings Settings::load()
     settings.idleSeconds = qBound(5, settings.idleSeconds, 3600);
     settings.llmKind = qBound(0, settings.llmKind, 3);
     settings.llmTimeoutMs = qBound(500, settings.llmTimeoutMs, 60000);
+    settings.proxyMode = qBound(0, settings.proxyMode, 2);
+    settings.proxyPort = qBound(0, settings.proxyPort, 65535);
 
     return settings;
 }
@@ -95,6 +103,12 @@ void Settings::save() const
     store.setValue(QStringLiteral("llm/project"), llmProject);
     store.setValue(QStringLiteral("llm/region"), llmRegion);
     store.setValue(QStringLiteral("llm/timeoutMs"), llmTimeoutMs);
+
+    store.setValue(QStringLiteral("proxy/mode"), proxyMode);
+    store.setValue(QStringLiteral("proxy/host"), proxyHost);
+    store.setValue(QStringLiteral("proxy/port"), proxyPort);
+    store.setValue(QStringLiteral("proxy/user"), proxyUser);
+    store.setValue(QStringLiteral("proxy/bypassLocal"), proxyBypassLocal);
 }
 
 void Settings::resetLocalData()

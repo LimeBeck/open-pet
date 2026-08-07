@@ -9,6 +9,7 @@
 #include "petviewmodel.h"
 #include "poweradapter.h"
 #include "sessionadapter.h"
+#include "secretstore.h"
 #include "settings.h"
 #include "settingscontroller.h"
 
@@ -131,26 +132,37 @@ int main(int argc, char *argv[])
 
     // LLM выключена, пока пользователь явно не задал провайдера (§7):
     // без настройки приложение не делает ни одного сетевого запроса.
-    // Окно настроек — этап M7, поэтому пока конфигурация из окружения.
-    const QString llmKind = qEnvironmentVariable("OPENPET_LLM");
-    if (!llmKind.isEmpty()) {
-        const int kind = llmKind == QLatin1String("ollama")   ? 1
-            : llmKind == QLatin1String("openai")              ? 2
-            : llmKind == QLatin1String("vertex")              ? 3
-                                                              : 0;
-        core.setLlmProvider(kind,
-                            qEnvironmentVariable("OPENPET_LLM_URL"),
-                            qEnvironmentVariable("OPENPET_LLM_MODEL"),
-                            qEnvironmentVariable("OPENPET_LLM_PROJECT"),
-                            qEnvironmentVariable("OPENPET_LLM_REGION"));
-        qCInfo(logApp, "LLM включена: %s, ядро подтверждает: %d",
-               qPrintable(llmKind), core.isLlmEnabled());
+    //
+    // Источник истины — сохранённые настройки. Переменные окружения только
+    // перекрывают их для проверки: раньше читалось исключительно окружение,
+    // и провайдер, включённый в окне, после перезапуска молча пропадал.
+    const QString llmEnv = qEnvironmentVariable("OPENPET_LLM");
+    const int llmKind = llmEnv.isEmpty() ? settings.llmKind
+        : llmEnv == QLatin1String("ollama")                  ? 1
+        : llmEnv == QLatin1String("openai")                  ? 2
+        : llmEnv == QLatin1String("vertex")                  ? 3
+                                                             : 0;
+
+    const auto envOr = [](const char *name, const QString &fallback) {
+        const QString value = qEnvironmentVariable(name);
+        return value.isEmpty() ? fallback : value;
+    };
+
+    if (llmKind > 0) {
+        core.setLlmProvider(llmKind,
+                            envOr("OPENPET_LLM_URL", settings.llmBaseUrl),
+                            envOr("OPENPET_LLM_MODEL", settings.llmModel),
+                            envOr("OPENPET_LLM_PROJECT", settings.llmProject),
+                            envOr("OPENPET_LLM_REGION", settings.llmRegion));
+        qCInfo(logApp, "LLM включена: вид %d, ядро подтверждает: %d", llmKind,
+               core.isLlmEnabled());
     }
 
     LlmClient llm(&core);
-    // Ключ берётся из окружения только для проверки. Постоянное место —
-    // Secret Service/KWallet, и это работа M7 (§FR-7).
-    llm.setApiKey(qEnvironmentVariable("OPENPET_LLM_KEY"));
+    llm.setProxy(settings.proxyMode, settings.proxyHost, settings.proxyPort, settings.proxyUser,
+                 SecretStore::read(QStringLiteral("proxy-password")), settings.proxyBypassLocal);
+    // Ключ читается из KWallet; окружение перекрывает его для проверки (§FR-7).
+    llm.setApiKey(envOr("OPENPET_LLM_KEY", SecretStore::read(QStringLiteral("llm-api-key"))));
 
     PetViewModel viewModel(&core);
     viewModel.setLlmClient(&llm);
@@ -386,6 +398,15 @@ int main(int argc, char *argv[])
         viewModel.setReducedMotion(fresh.reducedMotion);
         viewModel.setPaused(fresh.paused);
         overlay.scheduleRegionUpdate();
+        // Ключ мог быть только что сохранён в кошелёк — перечитываем,
+        // иначе он подхватится лишь со следующего запуска.
+        llm.setApiKey(SecretStore::read(QStringLiteral("llm-api-key")));
+        llm.setProxy(fresh.proxyMode, fresh.proxyHost, fresh.proxyPort, fresh.proxyUser,
+                     SecretStore::read(QStringLiteral("proxy-password")), fresh.proxyBypassLocal);
+        // Провайдер мог смениться в окне — иначе он подхватится лишь
+        // со следующего запуска, как это уже случилось однажды.
+        core.setLlmProvider(fresh.llmKind, fresh.llmBaseUrl, fresh.llmModel, fresh.llmProject,
+                            fresh.llmRegion);
     });
 
     // Трей (§4.1): показать/скрыть, настройки, пауза реакций, выход.

@@ -35,6 +35,11 @@ class SettingsController : public QObject
     Q_PROPERTY(QString llmBaseUrl READ llmBaseUrl WRITE setLlmBaseUrl NOTIFY changed)
     Q_PROPERTY(QString llmModel READ llmModel WRITE setLlmModel NOTIFY changed)
     Q_PROPERTY(int llmTimeoutMs READ llmTimeoutMs WRITE setLlmTimeoutMs NOTIFY changed)
+    Q_PROPERTY(int proxyMode READ proxyMode WRITE setProxyMode NOTIFY changed)
+    Q_PROPERTY(QString proxyHost READ proxyHost WRITE setProxyHost NOTIFY changed)
+    Q_PROPERTY(int proxyPort READ proxyPort WRITE setProxyPort NOTIFY changed)
+    Q_PROPERTY(QString proxyUser READ proxyUser WRITE setProxyUser NOTIFY changed)
+    Q_PROPERTY(bool proxyBypassLocal READ proxyBypassLocal WRITE setProxyBypassLocal NOTIFY changed)
     Q_PROPERTY(bool secretStorageAvailable READ secretStorageAvailable CONSTANT)
     Q_PROPERTY(bool hasApiKey READ hasApiKey NOTIFY changed)
 
@@ -79,6 +84,20 @@ public:
     void setLlmModel(const QString &value);
     int llmTimeoutMs() const { return m_settings.llmTimeoutMs; }
     void setLlmTimeoutMs(int value);
+
+    int proxyMode() const { return m_settings.proxyMode; }
+    void setProxyMode(int value);
+    QString proxyHost() const { return m_settings.proxyHost; }
+    void setProxyHost(const QString &value);
+    int proxyPort() const { return m_settings.proxyPort; }
+    void setProxyPort(int value);
+    QString proxyUser() const { return m_settings.proxyUser; }
+    void setProxyUser(const QString &value);
+    bool proxyBypassLocal() const { return m_settings.proxyBypassLocal; }
+    void setProxyBypassLocal(bool value);
+
+    // Пароль прокси уходит в KWallet тем же путём, что и ключ API.
+    Q_INVOKABLE bool storeProxyPassword(const QString &password);
 
     bool secretStorageAvailable() const;
     bool hasApiKey() const { return m_hasApiKey; }
