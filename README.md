@@ -206,6 +206,24 @@ kwriteconfig6 --file kwinrc --group Plugins --key openpet-active-windowEnabled f
 ([ADR-006](docs/adr/0006-memory-metric.md)), §FR-8 — на спрайтовый лист
 ([ADR-005](docs/adr/0005-pet-pack-sprite-sheet.md)).
 
+## Релизы
+
+Публикуются по тегу `vX.Y.Z`. Workflow собирает приложение в том же
+контейнере Arch, что и CI, и прикладывает архив с суммой SHA-256.
+
+Версия в теге обязана совпадать с версией в `CMakeLists.txt`
+и `core/Cargo.toml` — иначе публикация останавливается. Разойдясь однажды,
+версии разойдутся навсегда, и понять, что именно установлено у пользователя,
+станет нельзя.
+
+```bash
+# поднять версию в CMakeLists.txt и core/Cargo.toml, затем
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+Архив собран под x86_64 на Arch с Qt 6.11. Совместимость с другими
+дистрибутивами не обещается — см. [матрицу](docs/reference-system.md).
+
 ## Лицензия
 
 [MIT](LICENSE) — и код, и графика встроенного питомца.

@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Права нужны только на запись релиза. Токен по умолчанию имеет больше,
+# чем требуется, поэтому сужаем явно.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Сборка и публикация
+    runs-on: ubuntu-latest
+    # Тот же контейнер, что и в CI: релиз должен собираться ровно там же,
+    # где проверяется каждый коммит, иначе проверки ничего не гарантируют.
+    container: archlinux:base-devel
+
+    steps:
+      - name: Зависимости
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git cmake ninja rust \
+            qt6-base qt6-declarative qt6-wayland \
+            layer-shell-qt kidletime kwallet
+
+      - uses: actions/checkout@v4
+
+      # Тег и версия проекта обязаны совпадать. Разойдясь однажды, они
+      # разойдутся навсегда: пользователь будет ставить v0.2.0, а приложение
+      # сообщать 0.1.0, и понять, что именно у него установлено, станет нельзя.
+      - name: Сверка версии с тегом
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          CMAKE_VERSION=$(grep -m1 -oP 'VERSION\s+\K[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
+          CARGO_VERSION=$(grep -m1 -oP '^version = "\K[^"]+' core/Cargo.toml)
+
+          echo "тег: $TAG, CMake: $CMAKE_VERSION, Cargo: $CARGO_VERSION"
+
+          if [ "$TAG" != "$CMAKE_VERSION" ] || [ "$TAG" != "$CARGO_VERSION" ]; then
+            echo "::error::версия тега не совпадает с версией проекта"
+            exit 1
+          fi
+
+      - name: Проверки ядра
+        run: |
+          cargo fmt --manifest-path core/Cargo.toml --check
+          cargo clippy --manifest-path core/Cargo.toml --all-targets -- -D warnings
+          cargo test --manifest-path core/Cargo.toml
+
+      - name: Сборка
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+
+      - name: Установка в стейджинг
+        run: cmake --install build --prefix "$PWD/stage/usr" --strip
+
+      - name: Архив
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NAME="open-pet-${VERSION}-x86_64"
+          tar --zstd -C stage -cf "${NAME}.tar.zst" usr
+          sha256sum "${NAME}.tar.zst" > "${NAME}.tar.zst.sha256"
+          echo "ASSET=${NAME}.tar.zst" >> "$GITHUB_ENV"
+
+      - name: Состав архива
+        run: tar --zstd -tf "$ASSET"
+
+      - name: Публикация
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Архив собран из бинарников для x86_64 под Arch с Qt 6.11.
+          # Обещать совместимость с другими дистрибутивами нельзя, и об этом
+          # сказано прямо, а не мелким шрифтом.
+          cat > notes.md <<'NOTES'
+          ## Установка
+
+          ```bash
+          tar --zstd -xf open-pet-*-x86_64.tar.zst -C /
+          ```
+
+          Собрано на Arch с Qt 6.11 и KDE Frameworks 6. На других дистрибутивах
+          и других версиях Qt работоспособность не проверялась — см.
+          [матрицу совместимости](docs/reference-system.md).
+
+          Требуется KDE Plasma 6.2+ на Wayland: питомец живёт в layer-shell
+          поверхности, и без неё приложение не запустится.
+          NOTES
+
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            --generate-notes \
+            "$ASSET" "${ASSET}.sha256"

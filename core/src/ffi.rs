@@ -9,7 +9,7 @@ use crate::emotion::Emotion;
 use crate::event::{DesktopEvent, MediaState, PowerState, SessionState};
 use crate::llm::{self, PhraseRequest, Provider};
 use crate::petpack::PackStore;
-use crate::phrase::{Locale, PhraseBook, PhraseIntent};
+use crate::phrase::{Locale, PhraseBook};
 
 use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
