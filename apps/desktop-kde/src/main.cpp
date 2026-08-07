@@ -175,12 +175,25 @@ int main(int argc, char *argv[])
     // Ключ читается из KWallet; окружение перекрывает его для проверки (§FR-7).
     llm.setApiKey(envOr("OPENPET_LLM_KEY", SecretStore::read(QStringLiteral("llm-api-key"))));
 
+    // Проверка связи из терминала: нажать кнопку в окне нечем ни при
+    // проверке, ни в скрипте установки.
+    if (qEnvironmentVariableIsSet("OPENPET_HEALTHCHECK")) {
+        QObject::connect(&llm, &LlmClient::healthChecked,
+                         [](bool ok, bool modelFound, const QString &detail) {
+                             qCInfo(logApp).noquote()
+                                 << QStringLiteral("проверка связи: %1").arg(detail);
+                             QCoreApplication::exit(ok && modelFound ? 0 : 1);
+                         });
+        QTimer::singleShot(0, &llm, &LlmClient::checkHealth);
+        return app.exec();
+    }
+
     PetViewModel viewModel(&core);
     viewModel.setLlmClient(&llm);
     viewModel.setScale(settings.scale);
     viewModel.setReducedMotion(settings.reducedMotion);
 
-    SettingsController settingsController(&core);
+    SettingsController settingsController(&core, &llm);
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("petModel"), &viewModel);

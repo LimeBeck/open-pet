@@ -244,6 +244,21 @@ Window {
                            + "Записывать его в обычный файл настроек приложение не будет.")
             }
 
+            RowLayout {
+                Layout.fillWidth: true
+                visible: root.model.llmKind > 0
+
+                Button {
+                    text: qsTr("Проверить связь")
+                    onClicked: root.model.checkConnection()
+                }
+                Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                    text: root.model.healthStatus
+                }
+            }
+
             // §9: точный payload до включения сетевого провайдера.
             Button {
                 text: qsTr("Показать, что уйдёт провайдеру")

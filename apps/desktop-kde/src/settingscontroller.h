@@ -6,6 +6,7 @@
 #include <QString>
 
 class CoreBridge;
+class LlmClient;
 
 // Модель окна настроек (§4.1, §9).
 //
@@ -45,9 +46,10 @@ class SettingsController : public QObject
     Q_PROPERTY(bool hasApiKey READ hasApiKey NOTIFY changed)
 
     Q_PROPERTY(QString restartNotice READ restartNotice NOTIFY changed)
+    Q_PROPERTY(QString healthStatus READ healthStatus NOTIFY changed)
 
 public:
-    explicit SettingsController(CoreBridge *core, QObject *parent = nullptr);
+    explicit SettingsController(CoreBridge *core, LlmClient *llm, QObject *parent = nullptr);
 
     QString corner() const;
     void setCorner(const QString &corner);
@@ -110,6 +112,11 @@ public:
     bool hasApiKey() const { return m_hasApiKey; }
 
     QString restartNotice() const { return m_restartNotice; }
+    QString healthStatus() const { return m_healthStatus; }
+
+    // Проверка связи с провайдером (§FR-7). Результат придёт асинхронно
+    // в healthStatus: ждать сеть синхронно значит подвесить окно.
+    Q_INVOKABLE void checkConnection();
 
     // §9: перед первым включением сетевого провайдера UI показывает точный
     // пример payload. Здесь показывается не выдуманный образец, а ровно то
@@ -135,7 +142,9 @@ private:
     void markDirty(bool needsRestart = false);
 
     CoreBridge *m_core = nullptr;
+    LlmClient *m_llm = nullptr;
     Settings m_settings;
     bool m_hasApiKey = false;
     QString m_restartNotice;
+    QString m_healthStatus;
 };

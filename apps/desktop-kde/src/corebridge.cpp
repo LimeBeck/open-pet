@@ -274,6 +274,28 @@ bool CoreBridge::buildLlmRequest(LlmRequest *out) const
     return true;
 }
 
+bool CoreBridge::buildHealthRequest(LlmRequest *out) const
+{
+    if (!m_core || !out)
+        return false;
+
+    OpenPetLlmRequest plan {};
+    if (openpet_core_build_health_request(m_core, &plan) != 1)
+        return false;
+
+    out->url = QString::fromUtf8(plan.url);
+    out->body.clear();
+    out->timeoutMs = int(plan.timeout_ms);
+    return true;
+}
+
+int CoreBridge::acceptHealthResponse(const QByteArray &raw) const
+{
+    if (!m_core)
+        return -1;
+    return openpet_core_accept_health_response(m_core, raw.constData(), size_t(raw.size()));
+}
+
 QString CoreBridge::acceptLlmResponse(const QByteArray &raw) const
 {
     if (!m_core)

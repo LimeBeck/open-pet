@@ -40,6 +40,113 @@ pub enum Provider {
     },
 }
 
+/// Проверка связи с провайдером (§FR-7, `health_check`).
+///
+/// Отдельный запрос, потому что проверять связь генерацией реплики —
+/// значит платить за проверку временем модели и получать в ответ «медленно»
+/// вместо «недоступно». Здесь спрашивается то, что провайдер отдаёт сразу:
+/// список моделей.
+///
+/// Тела нет: это GET. Хост различает их по пустому `body`.
+pub fn build_health_request(provider: &Provider) -> RequestPlan {
+    let url = match provider {
+        Provider::Ollama { base_url, .. } => {
+            format!("{}/api/tags", base_url.trim_end_matches('/'))
+        }
+        Provider::OpenAiCompatible { base_url, .. } => {
+            format!("{}/models", base_url.trim_end_matches('/'))
+        }
+        Provider::VertexAi {
+            project, region, ..
+        } => format!(
+            "https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/publishers/google/models"
+        ),
+    };
+
+    RequestPlan {
+        url,
+        body: String::new(),
+        // Проверка связи должна отвечать быстро или не отвечать вовсе:
+        // пользователь ждёт её, глядя в окно настроек.
+        timeout_ms: 4_000,
+    }
+}
+
+/// Разбирает ответ проверки связи: доступен ли провайдер и виден ли в нём
+/// выбранный пользователем модель.
+///
+/// Возвращает список имён моделей. Пустой список — провайдер ответил,
+/// но моделей не отдал: это «доступен, но настроен не так», а не отказ.
+pub fn parse_health_response(provider: &Provider, raw: &[u8]) -> Result<Vec<String>, LlmError> {
+    const MAX_RESPONSE_BYTES: usize = 512 * 1024;
+    if raw.len() > MAX_RESPONSE_BYTES {
+        return Err(LlmError::Malformed);
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(raw).map_err(|_| LlmError::Malformed)?;
+
+    let names: Vec<String> = match provider {
+        Provider::Ollama { .. } => value
+            .get("models")
+            .and_then(|m| m.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.get("name").and_then(|n| n.as_str()))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .ok_or(LlmError::Malformed)?,
+
+        Provider::OpenAiCompatible { .. } => value
+            .get("data")
+            .and_then(|d| d.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.get("id").and_then(|i| i.as_str()))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .ok_or(LlmError::Malformed)?,
+
+        Provider::VertexAi { .. } => value
+            .get("publisherModels")
+            .and_then(|m| m.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.get("name").and_then(|n| n.as_str()))
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    };
+
+    Ok(names)
+}
+
+/// Настроенная модель среди тех, что вернул провайдер.
+///
+/// Сравнение не строгое: Ollama отдаёт `qwen3.5:4b`, а пользователь мог
+/// написать `qwen3.5` — считать это ошибкой значит ругаться на работающую
+/// настройку.
+pub fn model_is_present(provider: &Provider, models: &[String]) -> bool {
+    let wanted = match provider {
+        Provider::Ollama { model, .. }
+        | Provider::OpenAiCompatible { model, .. }
+        | Provider::VertexAi { model, .. } => model,
+    };
+
+    if wanted.is_empty() || models.is_empty() {
+        return false;
+    }
+
+    models
+        .iter()
+        .any(|name| name == wanted || name.starts_with(&format!("{wanted}:")))
+}
+
 /// Описание запроса для хоста. Хост добавляет заголовки с секретами
 /// и выполняет вызов; ничего сверх этого тела отправлять он не вправе.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -412,6 +519,107 @@ mod tests {
         let plan = build_request(&provider, &request());
         serde_json::from_str::<serde_json::Value>(&plan.body)
             .expect("экранирование обязано выдержать кавычку в имени модели");
+    }
+
+    #[test]
+    fn health_request_is_a_get_without_body() {
+        for provider in [
+            ollama(),
+            Provider::OpenAiCompatible {
+                base_url: "https://api.example.com/v1".to_string(),
+                model: "gpt-x".to_string(),
+            },
+            Provider::VertexAi {
+                project: "p".to_string(),
+                region: "europe-west4".to_string(),
+                model: "gemini".to_string(),
+            },
+        ] {
+            let plan = build_health_request(&provider);
+            assert!(
+                plan.body.is_empty(),
+                "{provider:?}: проверка связи не шлёт тело"
+            );
+            assert!(plan.url.starts_with("http"), "{provider:?}: {}", plan.url);
+        }
+    }
+
+    #[test]
+    fn health_request_does_not_double_the_slash() {
+        let provider = Provider::Ollama {
+            base_url: "http://127.0.0.1:11434/".to_string(),
+            model: "m".to_string(),
+        };
+        assert_eq!(
+            build_health_request(&provider).url,
+            "http://127.0.0.1:11434/api/tags"
+        );
+    }
+
+    #[test]
+    fn reads_model_list_from_every_provider_shape() {
+        let cases: [(Provider, &str, &str); 3] = [
+            (
+                ollama(),
+                r#"{"models":[{"name":"qwen3.5:4b"},{"name":"llama3:8b"}]}"#,
+                "qwen3.5:4b",
+            ),
+            (
+                Provider::OpenAiCompatible {
+                    base_url: "https://api.example.com/v1".to_string(),
+                    model: "gpt-x".to_string(),
+                },
+                r#"{"data":[{"id":"gpt-x"},{"id":"gpt-y"}]}"#,
+                "gpt-x",
+            ),
+            (
+                Provider::VertexAi {
+                    project: "p".to_string(),
+                    region: "r".to_string(),
+                    model: "gemini".to_string(),
+                },
+                r#"{"publisherModels":[{"name":"gemini"}]}"#,
+                "gemini",
+            ),
+        ];
+
+        for (provider, response, expected) in cases {
+            let models = parse_health_response(&provider, response.as_bytes()).unwrap();
+            assert!(models.contains(&expected.to_string()), "{models:?}");
+            assert!(model_is_present(&provider, &models));
+        }
+    }
+
+    #[test]
+    fn missing_model_is_reported_without_failing_the_check() {
+        // Провайдер доступен, но настроенной модели у него нет. Это разные
+        // беды: «не дозвонились» и «дозвонились, но просим несуществующее».
+        let models = parse_health_response(&ollama(), br#"{"models":[{"name":"mistral:7b"}]}"#)
+            .expect("ответ разобран");
+        assert!(!models.is_empty(), "провайдер ответил и модели у него есть");
+        assert!(
+            !model_is_present(&ollama(), &models),
+            "но настроенной llama3 среди них нет"
+        );
+    }
+
+    #[test]
+    fn model_matches_without_exact_tag() {
+        // Пользователь написал qwen3.5, Ollama отдаёт qwen3.5:4b — ругаться
+        // на работающую настройку незачем.
+        let provider = Provider::Ollama {
+            base_url: "http://127.0.0.1:11434".to_string(),
+            model: "qwen3.5".to_string(),
+        };
+        let models = vec!["qwen3.5:4b".to_string()];
+        assert!(model_is_present(&provider, &models));
+    }
+
+    #[test]
+    fn garbage_health_response_does_not_panic() {
+        for raw in [&b"not json"[..], &b""[..], &b"{}"[..]] {
+            let _ = parse_health_response(&ollama(), raw);
+        }
     }
 
     #[test]

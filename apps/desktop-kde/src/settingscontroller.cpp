@@ -2,6 +2,7 @@
 
 #include "autostart.h"
 #include "corebridge.h"
+#include "llmclient.h"
 #include "secretstore.h"
 
 #include <QLoggingCategory>
@@ -41,11 +42,24 @@ OverlaySurface::Corner cornerFromString(const QString &value)
 
 } // namespace
 
-SettingsController::SettingsController(CoreBridge *core, QObject *parent)
+SettingsController::SettingsController(CoreBridge *core, LlmClient *llm, QObject *parent)
     : QObject(parent)
     , m_core(core)
+    , m_llm(llm)
     , m_settings(Settings::load())
 {
+    if (m_llm) {
+        connect(m_llm, &LlmClient::healthChecked, this,
+                [this](bool ok, bool modelFound, const QString &detail) {
+                    // Формулировки разные не для красоты: «нет связи»
+                    // и «связь есть, модели нет» чинятся по-разному.
+                    m_healthStatus = ok && modelFound ? tr("✓ %1").arg(detail)
+                        : ok                          ? tr("⚠ %1").arg(detail)
+                                                      : tr("✗ %1").arg(detail);
+                    emit changed();
+                });
+    }
+
     // Наличие ключа проверяется, само значение не читается: незачем держать
     // секрет в памяти, пока он не понадобился.
     m_hasApiKey = SecretStore::isAvailable() && !SecretStore::read(kApiKeyAccount).isEmpty();
@@ -228,6 +242,21 @@ bool SettingsController::storeProxyPassword(const QString &password)
     const bool stored = SecretStore::store(kProxyPasswordAccount, password);
     emit changed();
     return stored;
+}
+
+void SettingsController::checkConnection()
+{
+    if (!m_llm)
+        return;
+
+    // Настройки применяются к ядру до проверки: иначе проверялся бы
+    // провайдер, настроенный в прошлый раз, а не тот, что в окне.
+    apply();
+
+    m_healthStatus = tr("проверяю…");
+    emit changed();
+
+    m_llm->checkHealth();
 }
 
 bool SettingsController::autostart() const

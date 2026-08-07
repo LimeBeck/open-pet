@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define OPENPET_ABI_VERSION 4
+#define OPENPET_ABI_VERSION 5
 
 // Длина ключа cooldown с завершающим нулём.
 #define OPENPET_COOLDOWN_KEY_SIZE 32
@@ -222,6 +222,17 @@ uint8_t openpet_core_llm_enabled(const OpenPetCore *core);
 // Готовит запрос для последней сформированной реакции. Возвращает 1,
 // если запрос есть, 0 — если говорить не о чем или LLM выключена.
 int32_t openpet_core_build_llm_request(OpenPetCore *core, OpenPetLlmRequest *out_request);
+
+// Готовит запрос проверки связи (§FR-7, health_check). Тела у него нет —
+// это GET, и хост различает запросы по пустому body.
+int32_t openpet_core_build_health_request(OpenPetCore *core, OpenPetLlmRequest *out_request);
+
+// Разбирает ответ проверки связи. Возвращает:
+//   1 — провайдер ответил и настроенная модель у него есть;
+//   0 — провайдер ответил, но модели нет: это разные беды, и путать их
+//       нельзя, иначе пользователь будет чинить сеть вместо опечатки;
+//  <0 — ответ не разобран.
+int32_t openpet_core_accept_health_response(OpenPetCore *core, const char *raw, uintptr_t raw_len);
 
 // Разбирает и очищает ответ провайдера. Возвращает 1 при годной фразе,
 // 0 при негодной — во втором случае хост показывает локальный шаблон (§FR-6).

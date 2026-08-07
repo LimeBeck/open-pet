@@ -15,7 +15,7 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 
-pub const ABI_VERSION: u32 = 4;
+pub const ABI_VERSION: u32 = 5;
 const COOLDOWN_KEY_SIZE: usize = 32;
 const PHRASE_SIZE: usize = 192;
 
@@ -648,6 +648,66 @@ pub unsafe extern "C" fn openpet_core_build_llm_request(
             1
         }
         Ok(None) => 0,
+        Err(_) => -2,
+    }
+}
+
+/// # Safety
+/// `core` и `out_request` должны быть валидными указателями.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_build_health_request(
+    core: *mut Core,
+    out_request: *mut FfiLlmRequest,
+) -> c_int {
+    let (Some(core), Some(slot)) = (core.as_ref(), out_request.as_mut()) else {
+        return -1;
+    };
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let provider = core.provider.lock().ok()?.clone()?;
+        Some(llm::build_health_request(&provider))
+    }));
+
+    match outcome {
+        Ok(Some(plan)) => {
+            if plan.url.len() >= LLM_URL_SIZE {
+                return 0;
+            }
+            slot.url = [0; LLM_URL_SIZE];
+            slot.body = [0; LLM_BODY_SIZE];
+            fill_utf8(&mut slot.url, &plan.url);
+            slot.timeout_ms = plan.timeout_ms;
+            1
+        }
+        Ok(None) => 0,
+        Err(_) => -2,
+    }
+}
+
+/// # Safety
+/// `core` и `raw` должны быть валидными указателями.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_accept_health_response(
+    core: *mut Core,
+    raw: *const c_char,
+    raw_len: usize,
+) -> c_int {
+    let Some(core) = core.as_ref() else { return -1 };
+    if raw.is_null() {
+        return -1;
+    }
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let provider = core.provider.lock().ok()?.clone()?;
+        let bytes = std::slice::from_raw_parts(raw as *const u8, raw_len);
+        let models = llm::parse_health_response(&provider, bytes).ok()?;
+        Some(llm::model_is_present(&provider, &models))
+    }));
+
+    match outcome {
+        Ok(Some(true)) => 1,
+        Ok(Some(false)) => 0,
+        Ok(None) => -1,
         Err(_) => -2,
     }
 }

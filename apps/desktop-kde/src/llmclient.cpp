@@ -30,6 +30,35 @@ void LlmClient::setApiKey(const QString &key)
     m_apiKey = key;
 }
 
+void LlmClient::applyProxy(const QUrl &url)
+{
+    // Локальный провайдер не ходит через прокси, пока пользователь явно
+    // не потребовал обратного. Ollama на 127.0.0.1 — основной сценарий
+    // приватного режима, и заворачивать её во внешний прокси значит
+    // отправлять наружу то, что должно остаться дома.
+    const QString host = url.host();
+    const bool isLocal = host == QLatin1String("127.0.0.1") || host == QLatin1String("localhost")
+        || host == QLatin1String("::1") || host.endsWith(QLatin1String(".localhost"));
+
+    if (isLocal && m_proxyBypassLocal) {
+        m_network.setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
+        return;
+    }
+
+    switch (m_proxyMode) {
+    case 1:
+        m_network.setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
+        break;
+    case 2:
+        m_network.setProxy(m_manualProxy);
+        break;
+    default:
+        // Системный: сбрасываем свой прокси, дальше решает фабрика Qt.
+        m_network.setProxy(QNetworkProxy(QNetworkProxy::DefaultProxy));
+        break;
+    }
+}
+
 void LlmClient::setProxy(int mode, const QString &host, int port, const QString &user,
                          const QString &password, bool bypassLocal)
 {
@@ -76,30 +105,7 @@ void LlmClient::requestPhrase()
 
     QNetworkRequest request { url };
 
-    // Локальный провайдер не ходит через прокси, пока пользователь явно
-    // не потребовал обратного. Ollama на 127.0.0.1 — основной сценарий
-    // приватного режима, и заворачивать её во внешний прокси значит
-    // отправлять наружу то, что должно остаться дома.
-    const QString host = url.host();
-    const bool isLocal = host == QLatin1String("127.0.0.1") || host == QLatin1String("localhost")
-        || host == QLatin1String("::1") || host.endsWith(QLatin1String(".localhost"));
-
-    if (isLocal && m_proxyBypassLocal) {
-        m_network.setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
-    } else {
-        switch (m_proxyMode) {
-        case 1:
-            m_network.setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
-            break;
-        case 2:
-            m_network.setProxy(m_manualProxy);
-            break;
-        default:
-            // Системный: сбрасываем свой прокси, дальше решает фабрика Qt.
-            m_network.setProxy(QNetworkProxy(QNetworkProxy::DefaultProxy));
-            break;
-        }
-    }
+    applyProxy(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     // Таймаут считает хост (ADR-008). Значение ядра — разумное умолчание,
     // но реальные локальные модели в него не укладываются: qwen3.5:4b даёт
@@ -122,6 +128,65 @@ void LlmClient::requestPhrase()
     m_inFlight = reply;
 
     connect(reply, &QNetworkReply::finished, this, [this, reply] { finish(reply); });
+}
+
+void LlmClient::checkHealth()
+{
+    if (!isEnabled()) {
+        emit healthChecked(false, false, tr("провайдер не выбран"));
+        return;
+    }
+
+    CoreBridge::LlmRequest plan;
+    if (!m_core->buildHealthRequest(&plan)) {
+        emit healthChecked(false, false, tr("ядро не смогло собрать запрос"));
+        return;
+    }
+
+    if (m_healthInFlight) {
+        m_healthInFlight->abort();
+        m_healthInFlight->deleteLater();
+        m_healthInFlight = nullptr;
+    }
+
+    const QUrl url(plan.url);
+    QNetworkRequest request { url };
+    request.setTransferTimeout(plan.timeoutMs);
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::ManualRedirectPolicy);
+    applyProxy(url);
+
+    if (!m_apiKey.isEmpty())
+        request.setRawHeader("Authorization", "Bearer " + m_apiKey.toUtf8());
+
+    // Проверка связи — обычный GET: спрашивается список моделей, а не
+    // генерация. Проверять связь генерацией значит платить за проверку
+    // временем модели и получать «медленно» вместо «недоступно».
+    QNetworkReply *reply = m_network.get(request);
+    m_healthInFlight = reply;
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        if (m_healthInFlight == reply)
+            m_healthInFlight = nullptr;
+        reply->deleteLater();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            qCWarning(logLlm) << "проверка связи не удалась, код" << int(reply->error());
+            emit healthChecked(false, false,
+                               tr("нет ответа (код %1)").arg(int(reply->error())));
+            return;
+        }
+
+        const int verdict = m_core->acceptHealthResponse(reply->readAll());
+        if (verdict < 0) {
+            emit healthChecked(false, false, tr("ответ не разобран"));
+            return;
+        }
+
+        emit healthChecked(true, verdict == 1,
+                           verdict == 1 ? tr("провайдер доступен, модель найдена")
+                                        : tr("провайдер доступен, но модели нет"));
+    });
 }
 
 void LlmClient::finish(QNetworkReply *reply)

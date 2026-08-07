@@ -78,6 +78,11 @@ public:
     // Пустая строка означает «ответ негоден» — показывается шаблон (§FR-6).
     QString acceptLlmResponse(const QByteArray &raw) const;
 
+    // Проверка связи (§FR-7). Возвращает false, если ядру нечего спросить.
+    bool buildHealthRequest(LlmRequest *out) const;
+    // 1 — провайдер ответил и модель есть, 0 — модели нет, <0 — не разобрано.
+    int acceptHealthResponse(const QByteArray &raw) const;
+
     // Локаль реплик. Неизвестные теги ядро приводит к английскому (§7).
     void setLocale(const QString &tag);
     void clearPhraseHistory();

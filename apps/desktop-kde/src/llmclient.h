@@ -4,6 +4,7 @@
 #include <QNetworkProxy>
 #include <QObject>
 #include <QPointer>
+#include <QUrl>
 #include <QString>
 
 class QNetworkReply;
@@ -35,6 +36,10 @@ public:
     // ядру нечего спросить, сигнал не придёт вовсе.
     void requestPhrase();
 
+    // Проверка связи из окна настроек. Результат приходит сигналом:
+    // ждать ответа сети синхронно — значит подвесить интерфейс.
+    void checkHealth();
+
 signals:
     // Годная реплика от модели.
     void phraseReady(const QString &phrase);
@@ -42,7 +47,13 @@ signals:
     // Хост показывает локальный шаблон (§FR-6).
     void phraseFailed(const QString &reason);
 
+    // ok — дозвонились; modelFound — настроенная модель у провайдера есть.
+    // Это разные вещи: без разделения пользователь чинил бы сеть вместо
+    // опечатки в названии модели.
+    void healthChecked(bool ok, bool modelFound, const QString &detail);
+
 private:
+    void applyProxy(const QUrl &url);
     void finish(QNetworkReply *reply);
 
     CoreBridge *m_core = nullptr;
@@ -52,4 +63,5 @@ private:
     QNetworkProxy m_manualProxy;
     bool m_proxyBypassLocal = true;
     QPointer<QNetworkReply> m_inFlight;
+    QPointer<QNetworkReply> m_healthInFlight;
 };
