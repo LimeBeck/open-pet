@@ -610,13 +610,29 @@ mod tests {
     }
 
     #[test]
-    fn silent_reaction_carries_no_phrase() {
+    fn locking_produces_no_reaction() {
         let core = openpet_core_new();
-        // Блокировка сессии меняет позу, но говорить некому.
+        // Блокировка экрана: питомца за ней не видно, поэтому реакции нет
+        // вовсе — ни позы, ни реплики.
         let mut event = empty_event(EVENT_SESSION_CHANGED);
         event.session_state = 1;
 
-        let mut reaction = to_ffi(
+        unsafe {
+            assert_eq!(
+                openpet_core_push_event(core, &event, std::ptr::null_mut()),
+                0
+            );
+            assert_eq!(
+                openpet_core_current_emotion(core),
+                emotion_code(Emotion::Idle)
+            );
+            openpet_core_free(core);
+        }
+    }
+
+    #[test]
+    fn reaction_without_intent_carries_no_phrase() {
+        let raw = to_ffi(
             &Reaction {
                 emotion: Emotion::Idle,
                 animation: Emotion::Idle,
@@ -627,13 +643,8 @@ mod tests {
             },
             None,
         );
-
-        unsafe {
-            assert_eq!(openpet_core_push_event(core, &event, &mut reaction), 1);
-            assert_eq!(reaction.has_phrase, 0);
-            assert!(phrase_of(&reaction).is_empty());
-            openpet_core_free(core);
-        }
+        assert_eq!(raw.has_phrase, 0);
+        assert!(phrase_of(&raw).is_empty());
     }
 
     #[test]

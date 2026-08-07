@@ -4,7 +4,9 @@
 //! поведение на связных историях, которые описаны как пользовательские
 //! сценарии.
 
-use openpet_core::{DesktopEvent, Emotion, MediaState, PowerState, SessionState, StateMachine};
+use openpet_core::{
+    DesktopEvent, Emotion, MediaState, PowerState, SessionState, StateMachine, Suppressed,
+};
 
 use std::time::{Duration, Instant};
 
@@ -100,29 +102,27 @@ fn us05_app_switch_is_noticed_once_per_cooldown() {
     }
 }
 
-/// Сессия: блокировка усыпляет, возобновление будит.
+/// Сессия: блокировка и сон реакции не дают, возобновление — даёт.
+///
+/// Питомца за экраном блокировки не видно, поэтому менять состояние незачем:
+/// приостановка отрисовки — забота хоста, а не rule engine.
 #[test]
-fn session_lock_and_resume() {
+fn session_lock_is_silent_and_resume_greets() {
+    for invisible in [SessionState::Locked, SessionState::Sleeping] {
+        let mut machine = StateMachine::new();
+        assert_eq!(
+            machine.handle(DesktopEvent::SessionChanged { state: invisible }),
+            Err(Suppressed::NoRule),
+            "{invisible:?} не должно менять состояние: этого никто не увидит"
+        );
+        assert_eq!(machine.current_emotion(), Emotion::Idle);
+    }
+
     let mut machine = StateMachine::new();
-    let base = Instant::now();
-
-    machine
-        .handle_at(
-            DesktopEvent::SessionChanged {
-                state: SessionState::Locked,
-            },
-            base,
-        )
-        .expect("блокировка усыпляет");
-    assert_eq!(machine.current_emotion(), Emotion::Sleepy);
-
     let resumed = machine
-        .handle_at(
-            DesktopEvent::SessionChanged {
-                state: SessionState::Resumed,
-            },
-            at(base, 60),
-        )
+        .handle(DesktopEvent::SessionChanged {
+            state: SessionState::Resumed,
+        })
         .expect("возобновление будит");
     assert_eq!(resumed.emotion, Emotion::Happy);
 }

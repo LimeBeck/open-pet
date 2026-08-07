@@ -195,6 +195,30 @@ int main(int argc, char *argv[])
     QObject::connect(&settleTimer, &QTimer::timeout, &core, &CoreBridge::settle);
     settleTimer.start(kSettleIntervalMs);
 
+    // Видимость складывается из двух независимых причин: пользователь мог
+    // спрятать питомца сам, а мог заблокироваться экран. Разблокировка
+    // не должна возвращать питомца, которого спрятали намеренно.
+    bool userWantsPet = true;
+    bool suspended = false;
+
+    const auto applyVisibility = [&] {
+        const bool shouldShow = userWantsPet && !suspended;
+        if (window->isVisible() == shouldShow)
+            return;
+
+        window->setVisible(shouldShow);
+
+        if (shouldShow) {
+            overlay.scheduleRegionUpdate();
+            settleTimer.start(kSettleIntervalMs);
+        } else {
+            // Скрытая поверхность не получает frame callbacks, и анимация
+            // останавливается сама. Таймер возврата в покой без зрителя
+            // тоже не нужен — это лишние пробуждения процессора.
+            settleTimer.stop();
+        }
+    };
+
     // Источники событий (§FR-3). Каждый публикует своё состояние здоровья:
     // недоступность — штатная ситуация, а не отказ запуска (§10).
     const auto reportCapability = [](EventSource *source) {
@@ -231,7 +255,21 @@ int main(int argc, char *argv[])
     SessionAdapter sessionSource;
     reportCapability(&sessionSource);
     QObject::connect(&sessionSource, &SessionAdapter::sessionChanged,
-                     [&core](SessionAdapter::State state) {
+                     [&](SessionAdapter::State state) {
+                         // За экраном блокировки и во сне питомца не видно.
+                         // Ядро на это состояния не меняет — реакции всё равно
+                         // никто не увидит; смысл события в том, чтобы
+                         // перестать тратить кадры и батарею (§14).
+                         const bool invisible = state == SessionAdapter::State::Locked
+                             || state == SessionAdapter::State::Sleeping;
+
+                         if (suspended != invisible) {
+                             suspended = invisible;
+                             qCInfo(logApp, invisible ? "сессия скрыта: отрисовка остановлена"
+                                                      : "сессия вернулась: отрисовка возобновлена");
+                             applyVisibility();
+                         }
+
                          core.pushSessionChanged(toContract(state));
                      });
 
@@ -260,12 +298,10 @@ int main(int argc, char *argv[])
 
     QAction *toggleAction = menu.addAction(QObject::tr("Скрыть питомца"));
     QObject::connect(toggleAction, &QAction::triggered, [&] {
-        const bool nowVisible = !window->isVisible();
-        window->setVisible(nowVisible);
-        toggleAction->setText(nowVisible ? QObject::tr("Скрыть питомца")
-                                         : QObject::tr("Показать питомца"));
-        if (nowVisible)
-            overlay.scheduleRegionUpdate();
+        userWantsPet = !userWantsPet;
+        toggleAction->setText(userWantsPet ? QObject::tr("Скрыть питомца")
+                                           : QObject::tr("Показать питомца"));
+        applyVisibility();
     });
 
     QAction *pauseAction = menu.addAction(QObject::tr("Пауза реакций"));
