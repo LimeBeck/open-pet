@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define OPENPET_ABI_VERSION 5
+#define OPENPET_ABI_VERSION 6
 
 // Длина ключа cooldown с завершающим нулём.
 #define OPENPET_COOLDOWN_KEY_SIZE 32
@@ -238,6 +238,38 @@ int32_t openpet_core_accept_health_response(OpenPetCore *core, const char *raw, 
 // 0 при негодной — во втором случае хост показывает локальный шаблон (§FR-6).
 int32_t openpet_core_accept_llm_response(OpenPetCore *core, const char *raw, uintptr_t raw_len,
                                          char *out_phrase, uintptr_t out_size);
+
+#define OPENPET_REPORT_SIZE 2048
+
+// Устанавливает Pet Pack из архива (§US-07).
+//
+// Размеры листа читаются ядром из самого PNG: хост их не сообщает, потому
+// что до распаковки знать их не может, а распаковка происходит внутри.
+//
+// Возвращает 1 при успехе, 0 при отказе. В out_report кладётся список
+// замечаний в обоих случаях: отказ без внятного списка ошибок — это
+// «не получилось», а §US-07 требует объяснить, почему.
+int32_t openpet_core_install_pack(OpenPetCore *core, const char *archive, uintptr_t archive_len,
+                                  char *out_report, uintptr_t report_size);
+
+// Откат к последнему рабочему пакету (§10).
+void openpet_core_rollback_pack(OpenPetCore *core);
+
+// Размер листа, ожидающего записи на диск. Ноль означает, что записывать
+// нечего: активен встроенный питомец либо лист уже забрали.
+//
+// Ядро не пишет файлы само: у него нет ни пути к каталогу данных, ни права
+// решать, куда их класть.
+uintptr_t openpet_core_pending_sheet_size(OpenPetCore *core);
+
+// Забирает байты листа; после успешного вызова ядро их не хранит.
+// Возвращает число записанных байт, 0 если брать нечего, <0 при ошибке.
+int32_t openpet_core_take_sheet(OpenPetCore *core, char *out, uintptr_t size);
+
+// Идентификатор активного пакета и имя файла листа. Имя пустое, если
+// активен встроенный питомец: его лист лежит в ресурсах приложения.
+void openpet_core_active_pack(OpenPetCore *core, char *out_id, uintptr_t id_size,
+                              char *out_sheet_file, uintptr_t sheet_size);
 
 // Раскладка кадров для состояния активного Pet Pack. Неизвестное состояние
 // подменяется fallbackAnimation — пустого окна не бывает (§FR-8).

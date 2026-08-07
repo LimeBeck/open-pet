@@ -43,6 +43,13 @@ pub struct ActivePack {
     source: SheetSource,
     sheet_width: u32,
     sheet_height: u32,
+    /// Байты листа, ждущие, пока хост запишет их на диск.
+    ///
+    /// Ядро не пишет файлы: у него нет ни пути к каталогу данных, ни права
+    /// решать, куда их класть. Байты живут здесь ровно до того, как хост
+    /// их заберёт, и сразу освобождаются — иначе лист висел бы в памяти
+    /// дважды, в ядре и в текстуре.
+    pending_sheet: Option<Vec<u8>>,
 }
 
 impl Default for ActivePack {
@@ -65,6 +72,7 @@ impl ActivePack {
             source: SheetSource::Builtin,
             sheet_width: BUILTIN_SHEET.0,
             sheet_height: BUILTIN_SHEET.1,
+            pending_sheet: None,
         }
     }
 
@@ -74,6 +82,18 @@ impl ActivePack {
 
     pub fn source(&self) -> &SheetSource {
         &self.source
+    }
+
+    /// Отдаёт байты листа хосту и забывает их.
+    ///
+    /// Повторный вызов вернёт `None`: это не ошибка, а признак того, что
+    /// лист уже на диске.
+    pub fn pending_sheet_len(&self) -> usize {
+        self.pending_sheet.as_ref().map_or(0, Vec::len)
+    }
+
+    pub fn take_sheet(&mut self) -> Option<Vec<u8>> {
+        self.pending_sheet.take()
     }
 
     pub fn sheet_size(&self) -> (u32, u32) {
@@ -134,6 +154,10 @@ impl PackStore {
         }
     }
 
+    pub fn active_mut(&mut self) -> &mut ActivePack {
+        &mut self.active
+    }
+
     pub fn active(&self) -> &ActivePack {
         &self.active
     }
@@ -145,11 +169,15 @@ impl PackStore {
     ///
     /// При любой ошибке активный пакет **не меняется**: сначала всё
     /// проверяется, и только успешная проверка приводит к подмене.
+    /// Устанавливает пакет из архива.
+    ///
+    /// Размеры листа читаются из самого PNG, а не приходят параметром:
+    /// вызывающий не может знать их до распаковки, которая происходит здесь,
+    /// а верить числу, которое некому проверить, — способ обойти проверку
+    /// размеров сетки.
     pub fn install(
         &mut self,
         archive: &[u8],
-        sheet_width: u32,
-        sheet_height: u32,
         archive_limits: &ArchiveLimits,
         limits: &Limits,
     ) -> Result<Vec<Finding>, Vec<Finding>> {
@@ -171,12 +199,19 @@ impl PackStore {
 
         // Лист обязан присутствовать под тем именем, которое назвал манифест:
         // иначе пакет пройдёт проверку и не покажет ничего.
-        if pack.find(&manifest.sheet).is_none() {
+        let Some(sheet_bytes) = pack.find(&manifest.sheet) else {
             return Err(vec![Finding {
                 severity: Severity::Error,
                 message: format!("в архиве нет листа «{}»", manifest.sheet),
             }]);
-        }
+        };
+
+        let Some((sheet_width, sheet_height)) = super::png_dimensions(sheet_bytes) else {
+            return Err(vec![Finding {
+                severity: Severity::Error,
+                message: format!("«{}» не является PNG", manifest.sheet),
+            }]);
+        };
 
         let report = validate(&manifest, sheet_width, sheet_height, limits);
         if !report.is_acceptable() {
@@ -195,6 +230,7 @@ impl PackStore {
                 source: SheetSource::Imported { file: sheet_file },
                 sheet_width,
                 sheet_height,
+                pending_sheet: Some(sheet_bytes.to_vec()),
             },
         );
 
@@ -252,8 +288,6 @@ mod tests {
         let problems = store
             .install(
                 "это не архив".as_bytes(),
-                100,
-                100,
                 &ArchiveLimits::default(),
                 &Limits::default(),
             )

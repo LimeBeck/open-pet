@@ -4,6 +4,7 @@
 
 #include <QObject>
 #include <QString>
+#include <QUrl>
 
 class CoreBridge;
 class LlmClient;
@@ -47,6 +48,8 @@ class SettingsController : public QObject
 
     Q_PROPERTY(QString restartNotice READ restartNotice NOTIFY changed)
     Q_PROPERTY(QString healthStatus READ healthStatus NOTIFY changed)
+    Q_PROPERTY(QString packStatus READ packStatus NOTIFY changed)
+    Q_PROPERTY(QString activePackId READ activePackId NOTIFY changed)
 
 public:
     explicit SettingsController(CoreBridge *core, LlmClient *llm, QObject *parent = nullptr);
@@ -118,6 +121,14 @@ public:
     // в healthStatus: ждать сеть синхронно значит подвесить окно.
     Q_INVOKABLE void checkConnection();
 
+    QString packStatus() const { return m_packStatus; }
+    QString activePackId() const;
+
+    // §US-07: пользователь выбирает файл, валидатор проверяет его до
+    // установки, негодный отклоняется с понятным списком ошибок.
+    Q_INVOKABLE void importPack(const QUrl &fileUrl);
+    Q_INVOKABLE void resetPackToBuiltin();
+
     // §9: перед первым включением сетевого провайдера UI показывает точный
     // пример payload. Здесь показывается не выдуманный образец, а ровно то
     // тело, которое отправит ядро.
@@ -137,6 +148,8 @@ signals:
     void changed();
     void applied();
     void localDataReset();
+    // Хост меняет питомца на экране: путь пустой — вернуться к встроенному.
+    void petPackChanged(const QString &sheetPath);
 
 private:
     void markDirty(bool needsRestart = false);
@@ -147,4 +160,5 @@ private:
     bool m_hasApiKey = false;
     QString m_restartNotice;
     QString m_healthStatus;
+    QString m_packStatus;
 };

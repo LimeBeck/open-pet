@@ -1,7 +1,10 @@
 #include "corebridge.h"
 
 #include <QByteArray>
+#include <QDir>
+#include <QFile>
 #include <QLoggingCategory>
+#include <QStandardPaths>
 #include <QMetaObject>
 
 Q_LOGGING_CATEGORY(logCore, "openpet.core")
@@ -272,6 +275,88 @@ bool CoreBridge::buildLlmRequest(LlmRequest *out) const
     out->body = QString::fromUtf8(raw.body);
     out->timeoutMs = int(raw.timeout_ms);
     return true;
+}
+
+CoreBridge::PackInstall CoreBridge::installPack(const QByteArray &archive, QString *outSheetPath)
+{
+    PackInstall result;
+    if (!m_core)
+        return result;
+
+    QByteArray report(OPENPET_REPORT_SIZE, '\0');
+    const int verdict = openpet_core_install_pack(m_core, archive.constData(),
+                                                  size_t(archive.size()), report.data(),
+                                                  size_t(report.size()));
+    result.report = QString::fromUtf8(report.constData());
+    result.accepted = verdict == 1;
+
+    if (!result.accepted)
+        return result;
+
+    // Лист забирается у ядра один раз: там он не хранится, чтобы не висеть
+    // в памяти дважды — в ядре и в текстуре.
+    const size_t size = openpet_core_pending_sheet_size(m_core);
+    if (size == 0)
+        return result;
+
+    QByteArray sheet(int(size), '\0');
+    const int written = openpet_core_take_sheet(m_core, sheet.data(), size);
+    if (written <= 0) {
+        result.accepted = false;
+        result.report = tr("не удалось получить лист из пакета");
+        return result;
+    }
+    sheet.truncate(written);
+
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        + QStringLiteral("/packs/") + activePackId();
+    if (!QDir().mkpath(dir)) {
+        result.accepted = false;
+        result.report = tr("не удалось создать каталог для пакета");
+        return result;
+    }
+
+    // Архив кладётся рядом: при следующем запуске пакет ставится заново
+    // и заново проходит проверку. Хранить только распакованный лист значило
+    // бы доверять собственному кэшу больше, чем валидатору.
+    QFile archiveCopy(dir + QStringLiteral("/pack.zip"));
+    if (archiveCopy.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        archiveCopy.write(archive);
+
+    const QString path = dir + QStringLiteral("/sheet.png");
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)
+        || file.write(sheet) != sheet.size()) {
+        // Записать наполовину хуже, чем не записать: питомец покажет мусор.
+        file.remove();
+        result.accepted = false;
+        result.report = tr("не удалось записать лист на диск");
+        return result;
+    }
+    file.close();
+
+    if (outSheetPath)
+        *outSheetPath = path;
+
+    return result;
+}
+
+void CoreBridge::rollbackPack()
+{
+    if (m_core)
+        openpet_core_rollback_pack(m_core);
+}
+
+QString CoreBridge::activePackId() const
+{
+    if (!m_core)
+        return {};
+
+    QByteArray id(128, '\0');
+    QByteArray sheet(256, '\0');
+    openpet_core_active_pack(m_core, id.data(), size_t(id.size()), sheet.data(),
+                             size_t(sheet.size()));
+    return QString::fromUtf8(id.constData());
 }
 
 bool CoreBridge::buildHealthRequest(LlmRequest *out) const

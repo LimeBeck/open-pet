@@ -186,6 +186,11 @@ void PetViewModel::dismissPhrase()
     emit phraseChanged();
 }
 
+void PetViewModel::refreshAnimation()
+{
+    applyEmotion(m_emotion);
+}
+
 void PetViewModel::handleClick()
 {
     if (m_core)

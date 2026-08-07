@@ -78,6 +78,19 @@ public:
     // Пустая строка означает «ответ негоден» — показывается шаблон (§FR-6).
     QString acceptLlmResponse(const QByteArray &raw) const;
 
+    struct PackInstall {
+        bool accepted = false;
+        // Замечания приходят и при успехе: у принятого пакета бывают
+        // предупреждения, и молчать о них — значит скрывать полдиагностики.
+        QString report;
+    };
+
+    // Устанавливает Pet Pack и, при успехе, записывает лист в каталог данных.
+    // Путь к листу возвращается через outSheetPath.
+    PackInstall installPack(const QByteArray &archive, QString *outSheetPath);
+    void rollbackPack();
+    QString activePackId() const;
+
     // Проверка связи (§FR-7). Возвращает false, если ядру нечего спросить.
     bool buildHealthRequest(LlmRequest *out) const;
     // 1 — провайдер ответил и модель есть, 0 — модели нет, <0 — не разобрано.

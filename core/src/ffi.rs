@@ -8,14 +8,14 @@ use crate::behavior::{Reaction, StateMachine, Suppressed};
 use crate::emotion::Emotion;
 use crate::event::{DesktopEvent, MediaState, PowerState, SessionState};
 use crate::llm::{self, PhraseRequest, Provider};
-use crate::petpack::PackStore;
+use crate::petpack::{ArchiveLimits, Limits, PackStore, SheetSource};
 use crate::phrase::{Locale, PhraseBook};
 
 use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 
-pub const ABI_VERSION: u32 = 5;
+pub const ABI_VERSION: u32 = 6;
 const COOLDOWN_KEY_SIZE: usize = 32;
 const PHRASE_SIZE: usize = 192;
 
@@ -650,6 +650,147 @@ pub unsafe extern "C" fn openpet_core_build_llm_request(
         Ok(None) => 0,
         Err(_) => -2,
     }
+}
+
+/// # Safety
+/// `core`, `archive` и `out_report` должны быть валидными указателями.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_install_pack(
+    core: *mut Core,
+    archive: *const c_char,
+    archive_len: usize,
+    out_report: *mut c_char,
+    report_size: usize,
+) -> c_int {
+    let Some(core) = core.as_ref() else { return -1 };
+    if archive.is_null() {
+        return -1;
+    }
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let bytes = std::slice::from_raw_parts(archive as *const u8, archive_len);
+        let mut packs = core.packs.lock().ok()?;
+        Some(packs.install(bytes, &ArchiveLimits::default(), &Limits::default()))
+    }));
+
+    // Замечания собираются и при успехе, и при отказе: §US-07 требует
+    // объяснить, почему пакет отклонён, а предупреждения полезны и у принятого.
+    let (accepted, findings) = match outcome {
+        Ok(Some(Ok(findings))) => (true, findings),
+        Ok(Some(Err(findings))) => (false, findings),
+        Ok(None) => (false, Vec::new()),
+        Err(_) => {
+            core.log(LOG_WARNING, "паника при установке пакета перехвачена");
+            return -2;
+        }
+    };
+
+    if !out_report.is_null() && report_size > 0 {
+        let text = findings
+            .iter()
+            .map(|finding| finding.message.clone())
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let buffer = std::slice::from_raw_parts_mut(out_report, report_size);
+        buffer.fill(0);
+        fill_utf8(buffer, &text);
+    }
+
+    c_int::from(accepted)
+}
+
+/// # Safety
+/// `core` должен быть валидным указателем на ядро.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_rollback_pack(core: *mut Core) {
+    let Some(core) = core.as_ref() else { return };
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Ok(mut packs) = core.packs.lock() {
+            packs.rollback();
+        }
+    }));
+}
+
+/// Размер листа, ожидающего записи на диск. Ноль означает, что записывать
+/// нечего: либо активен встроенный питомец, либо лист уже забрали.
+///
+/// # Safety
+/// `core` должен быть валидным указателем на ядро.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_pending_sheet_size(core: *mut Core) -> usize {
+    let Some(core) = core.as_ref() else { return 0 };
+    core.packs
+        .lock()
+        .map(|packs| packs.active().pending_sheet_len())
+        .unwrap_or(0)
+}
+
+/// Забирает байты листа. После успешного вызова ядро их не хранит.
+///
+/// # Safety
+/// `out` должен быть буфером не меньше `size` байт.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_take_sheet(
+    core: *mut Core,
+    out: *mut c_char,
+    size: usize,
+) -> c_int {
+    let Some(core) = core.as_ref() else { return -1 };
+    if out.is_null() {
+        return -1;
+    }
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let mut packs = core.packs.lock().ok()?;
+        packs.active_mut().take_sheet()
+    }));
+
+    match outcome {
+        Ok(Some(bytes)) => {
+            if bytes.len() > size {
+                // Буфер меньше листа: лучше не отдать ничего, чем отдать
+                // обрезанный PNG, который хост запишет как рабочий.
+                return -1;
+            }
+            let buffer = std::slice::from_raw_parts_mut(out as *mut u8, bytes.len());
+            buffer.copy_from_slice(&bytes);
+            c_int::try_from(bytes.len()).unwrap_or(c_int::MAX)
+        }
+        Ok(None) => 0,
+        Err(_) => -2,
+    }
+}
+
+/// # Safety
+/// `core` и оба буфера должны быть валидными указателями.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_active_pack(
+    core: *mut Core,
+    out_id: *mut c_char,
+    id_size: usize,
+    out_sheet_file: *mut c_char,
+    sheet_size: usize,
+) {
+    let Some(core) = core.as_ref() else { return };
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let Ok(packs) = core.packs.lock() else { return };
+        let pack = packs.active();
+
+        if !out_id.is_null() && id_size > 0 {
+            let buffer = std::slice::from_raw_parts_mut(out_id, id_size);
+            buffer.fill(0);
+            fill_utf8(buffer, pack.id());
+        }
+
+        if !out_sheet_file.is_null() && sheet_size > 0 {
+            let buffer = std::slice::from_raw_parts_mut(out_sheet_file, sheet_size);
+            buffer.fill(0);
+            if let SheetSource::Imported { file } = pack.source() {
+                fill_utf8(buffer, file);
+            }
+        }
+    }));
 }
 
 /// # Safety

@@ -38,6 +38,9 @@ struct Settings {
     QString llmRegion;
     int llmTimeoutMs = 2500;
 
+    // Идентификатор активного Pet Pack (§9). Пустой — встроенный питомец.
+    QString activePackId;
+
     // Прокси. 0 — системный, 1 — без прокси, 2 — заданный вручную.
     // Пароль прокси, если понадобится, пойдёт в KWallet, а не сюда (§FR-7).
     int proxyMode = 0;

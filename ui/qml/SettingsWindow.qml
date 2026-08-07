@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 // Окно настроек (§4.1, §9).
@@ -293,6 +294,53 @@ Window {
                         font.pixelSize: 11
                     }
                 }
+            }
+
+            MenuSeparator { Layout.fillWidth: true }
+
+            // --- Питомец (§US-07) ---
+            Label { text: qsTr("Питомец"); font.bold: true }
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                opacity: 0.75
+                text: qsTr("Пакет проверяется до установки. Негодный отклоняется "
+                           + "со списком причин, а текущий питомец остаётся на месте.")
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+
+                Button {
+                    text: qsTr("Импортировать…")
+                    onClicked: packDialog.open()
+                }
+                Button {
+                    text: qsTr("Вернуть встроенного")
+                    onClicked: root.model.resetPackToBuiltin()
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: qsTr("активен: %1").arg(root.model.activePackId)
+                    elide: Text.ElideRight
+                    opacity: 0.75
+                }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                visible: text.length > 0
+                text: root.model.packStatus
+                font.family: "monospace"
+                font.pixelSize: 11
+            }
+
+            FileDialog {
+                id: packDialog
+                title: qsTr("Выберите Pet Pack")
+                nameFilters: [qsTr("Pet Pack (*.zip *.petpack)"), qsTr("Все файлы (*)")]
+                onAccepted: root.model.importPack(selectedFile)
             }
 
             MenuSeparator { Layout.fillWidth: true }

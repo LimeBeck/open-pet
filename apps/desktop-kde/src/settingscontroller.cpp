@@ -5,6 +5,7 @@
 #include "llmclient.h"
 #include "secretstore.h"
 
+#include <QFile>
 #include <QLoggingCategory>
 
 Q_DECLARE_LOGGING_CATEGORY(logApp)
@@ -242,6 +243,72 @@ bool SettingsController::storeProxyPassword(const QString &password)
     const bool stored = SecretStore::store(kProxyPasswordAccount, password);
     emit changed();
     return stored;
+}
+
+QString SettingsController::activePackId() const
+{
+    return m_core ? m_core->activePackId() : QString();
+}
+
+void SettingsController::importPack(const QUrl &fileUrl)
+{
+    if (!m_core)
+        return;
+
+    QFile file(fileUrl.toLocalFile());
+    if (!file.open(QIODevice::ReadOnly)) {
+        m_packStatus = tr("✗ файл не открывается");
+        emit changed();
+        return;
+    }
+
+    // Размер ограничен до чтения, а не после: смысл лимита в том, чтобы
+    // не втягивать в память гигабайтный файл, а не в том, чтобы отвергнуть
+    // его, уже втянув.
+    constexpr qint64 kMaxArchiveBytes = 64 * 1024 * 1024;
+    if (file.size() > kMaxArchiveBytes) {
+        m_packStatus = tr("✗ файл больше 64 МиБ");
+        emit changed();
+        return;
+    }
+
+    const QByteArray archive = file.readAll();
+    file.close();
+
+    QString sheetPath;
+    const CoreBridge::PackInstall result = m_core->installPack(archive, &sheetPath);
+
+    if (!result.accepted) {
+        // Активный пакет не тронут: ядро подменяет его только после того,
+        // как проверка пройдена (§10).
+        m_packStatus = tr("✗ пакет отклонён:\n%1").arg(result.report);
+        emit changed();
+        return;
+    }
+
+    // Выбор запоминается: §9 требует хранить активный пакет между запусками.
+    m_settings.activePackId = activePackId();
+    m_settings.save();
+
+    m_packStatus = result.report.isEmpty()
+        ? tr("✓ установлен: %1").arg(activePackId())
+        : tr("✓ установлен: %1\nзамечания:\n%2").arg(activePackId(), result.report);
+
+    emit petPackChanged(sheetPath);
+    emit changed();
+}
+
+void SettingsController::resetPackToBuiltin()
+{
+    if (!m_core)
+        return;
+
+    m_core->rollbackPack();
+    m_settings.activePackId = activePackId();
+    m_settings.save();
+    m_packStatus = tr("вернулись к пакету: %1").arg(activePackId());
+    emit petPackChanged(QString());
+    emit changed();
 }
 
 void SettingsController::checkConnection()

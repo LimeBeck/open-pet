@@ -25,7 +25,9 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QFile>
 #include <QQuickWindow>
+#include <QStandardPaths>
 #include <QScreen>
 #include <QSystemTrayIcon>
 #include <QTimer>
@@ -188,12 +190,61 @@ int main(int argc, char *argv[])
         return app.exec();
     }
 
+    // Восстановление выбранного пакета (§9). Архив ставится заново и заново
+    // проходит проверку: доверять собственному кэшу больше, чем валидатору,
+    // значит обходить его.
+    if (!settings.activePackId.isEmpty()) {
+        const QString packDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+            + QStringLiteral("/packs/") + settings.activePackId;
+
+        QFile stored(packDir + QStringLiteral("/pack.zip"));
+        if (stored.open(QIODevice::ReadOnly)) {
+            QString sheetPath;
+            const auto restored = core.installPack(stored.readAll(), &sheetPath);
+            if (restored.accepted && !sheetPath.isEmpty()) {
+                qCInfo(logApp).noquote()
+                    << QStringLiteral("восстановлен пакет: %1").arg(core.activePackId());
+            } else {
+                // Пакет испортился между запусками — откат на встроенного (§10).
+                qCWarning(logApp).noquote()
+                    << QStringLiteral("пакет не восстановлен, откат: %1").arg(restored.report);
+                core.rollbackPack();
+            }
+        }
+    }
+
     PetViewModel viewModel(&core);
     viewModel.setLlmClient(&llm);
+    {
+        // Питомец берёт лист активного пакета: восстановленный пакет должен
+        // показаться сразу, а не после первого события.
+        const QString sheetFile = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+            + QStringLiteral("/packs/") + core.activePackId() + QStringLiteral("/sheet.png");
+        if (!settings.activePackId.isEmpty() && QFile::exists(sheetFile))
+            viewModel.setSheetSource(QUrl::fromLocalFile(sheetFile));
+    }
+
     viewModel.setScale(settings.scale);
     viewModel.setReducedMotion(settings.reducedMotion);
 
     SettingsController settingsController(&core, &llm);
+
+    // Импорт из терминала: открыть диалог выбора файла в скрипте нечем,
+    // а проверять импорт надо.
+    if (qEnvironmentVariableIsSet("OPENPET_IMPORT_PACK")) {
+        QObject::connect(&settingsController, &SettingsController::changed, [&] {
+            qCInfo(logApp).noquote() << settingsController.packStatus();
+            QCoreApplication::exit(settingsController.packStatus().startsWith(QLatin1Char('✓'))
+                                       ? 0
+                                       : 1);
+        });
+        QTimer::singleShot(0, [&] {
+            settingsController.importPack(
+                QUrl::fromLocalFile(qEnvironmentVariable("OPENPET_IMPORT_PACK")));
+        });
+        return app.exec();
+    }
+
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("petModel"), &viewModel);
@@ -415,6 +466,17 @@ int main(int argc, char *argv[])
     // Диагностический выключатель трея: он тянет за собой стек виджетов,
     // и надо было проверить, не он ли мешает отрисовке overlay.
     const bool trayEnabled = !qEnvironmentVariableIsSet("OPENPET_NO_TRAY");
+
+    QObject::connect(&settingsController, &SettingsController::petPackChanged,
+                     [&](const QString &sheetPath) {
+                         // Пустой путь — вернулись к встроенному питомцу,
+                         // его лист лежит в ресурсах приложения.
+                         viewModel.setSheetSource(sheetPath.isEmpty()
+                                                      ? QUrl(QStringLiteral(
+                                                            "qrc:/qt/qml/OpenPet/Ui/lime.png"))
+                                                      : QUrl::fromLocalFile(sheetPath));
+                         viewModel.refreshAnimation();
+                     });
 
     QObject::connect(&settingsController, &SettingsController::applied, [&] {
         const Settings &fresh = settingsController.current();

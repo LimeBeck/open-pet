@@ -60,6 +60,8 @@ Settings Settings::load()
     settings.llmRegion = store.value(QStringLiteral("llm/region")).toString();
     settings.llmTimeoutMs = store.value(QStringLiteral("llm/timeoutMs"), 2500).toInt();
 
+    settings.activePackId = store.value(QStringLiteral("pet/activePackId")).toString();
+
     settings.proxyMode = store.value(QStringLiteral("proxy/mode"), 0).toInt();
     settings.proxyHost = store.value(QStringLiteral("proxy/host")).toString();
     settings.proxyPort = store.value(QStringLiteral("proxy/port"), 0).toInt();
@@ -103,6 +105,8 @@ void Settings::save() const
     store.setValue(QStringLiteral("llm/project"), llmProject);
     store.setValue(QStringLiteral("llm/region"), llmRegion);
     store.setValue(QStringLiteral("llm/timeoutMs"), llmTimeoutMs);
+
+    store.setValue(QStringLiteral("pet/activePackId"), activePackId);
 
     store.setValue(QStringLiteral("proxy/mode"), proxyMode);
     store.setValue(QStringLiteral("proxy/host"), proxyHost);
