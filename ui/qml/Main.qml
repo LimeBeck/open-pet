@@ -3,10 +3,11 @@ import QtQuick
 Window {
     id: root
 
-    // Поля вокруг питомца остаются прозрачными и кликов не ловят:
+    // Окно чуть больше ячейки спрайта: запас нужен под будущий пузырь реплики
+    // (M2). Поля вокруг питомца остаются прозрачными и кликов не ловят —
     // за это отвечает input region (ADR-002).
-    width: Math.round(200 * petModel.scale)
-    height: Math.round(200 * petModel.scale)
+    width: Math.round(petView.implicitWidth * petModel.scale)
+    height: Math.round(petView.implicitHeight * petModel.scale)
     visible: false
     color: "transparent"
     title: "open-pet"
@@ -20,8 +21,8 @@ Window {
         Pet {
             id: petView
             emotion: petModel.emotionName
-            // Пауза останавливает реакции, но не должна замораживать самого
-            // питомца: он остаётся живым, просто перестаёт отзываться (§FR-2).
+            // Пауза останавливает реакции, но не замораживает питомца:
+            // он остаётся живым, просто перестаёт отзываться (§FR-2).
             animated: !petModel.reducedMotion
         }
     }

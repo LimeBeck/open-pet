@@ -79,11 +79,23 @@ ui/qml/                    # общий QML UI
 core/                      # Rust domain core
 platform/contracts/        # C ABI между хостом и ядром
 platform/kde-wayland/      # LayerShellQt, input region
+assets/builtin-pet/        # встроенный питомец Лайм
 spikes/                    # пробы M0
 docs/                      # спецификация, privacy model, ADR
 ```
 
-Каталоги `pet-pack/`, `assets/` и `tests/fixtures/` появятся в M5.
+Каталоги `pet-pack/` и `tests/fixtures/` появятся в M5.
+
+## Встроенный питомец
+
+Лайм — пиксельный зелёный лис в тёмном худи. Спрайтовый лист 8×11, ячейка
+192×208, все восемь состояний §4.1 отрисовываются из одной текстуры.
+Раскладка строк и её слабые места — в
+[`assets/builtin-pet/README.md`](assets/builtin-pet/README.md).
+
+Формат встроенного питомца расходится с Pet Pack v1 из §FR-8: там отдельные
+WebP на состояние, здесь один лист. Что из этого станет контрактом v1 —
+предмет [ADR-005](docs/adr/0005-pet-pack-sprite-sheet.md), решать до M5.
 
 ## Сборка
 

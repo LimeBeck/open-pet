@@ -2,194 +2,74 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 
-// Встроенный питомец M1.
+// Встроенный питомец: спрайтовый лист 8×11, ячейка 192×208.
 //
-// Нарисован примитивами QML намеренно: формат Pet Pack и его валидатор —
-// этап M5, а до тех пор скелету нужен питомец, который не тянет за собой
-// ни ассетов, ни лицензий. Каждое из восьми состояний §4.1 отличается
-// видимо, иначе по картинке нельзя проверить, что ядро вообще работает.
+// Раскладка состояний по строкам листа и расхождение с форматом Pet Pack v1
+// описаны в assets/builtin-pet/README.md.
 //
-// Силуэт намеренно с дырами — просвет между ушами и промежуток между лапами:
-// на них проверяется, что input region по альфа-каналу (ADR-002) не съедает
-// клики по рабочему столу.
+// Анимация идёт покадрово из одной текстуры. Непрерывных QML-анимаций здесь
+// намеренно нет: сцена становится грязной только при смене кадра, то есть
+// 4–8 раз в секунду вместо каждого кадра дисплея. Для бюджета §7 это
+// принципиально — 90 перерисовок в секунду на процедурном питомце давали
+// 4–6% ядра при цели в 2%.
 Item {
     id: root
 
-    // Имя эмоции из ядра: idle, happy, curious, sleepy, charging,
+    // Имя состояния из ядра: idle, happy, curious, sleepy, charging,
     // low_battery, notification, busy.
     property string emotion: "idle"
     property bool animated: true
 
-    implicitWidth: 160
-    implicitHeight: 170
+    readonly property int cellWidth: 192
+    readonly property int cellHeight: 208
 
+    implicitWidth: cellWidth
+    implicitHeight: cellHeight
 
-    readonly property color bodyColor: {
-        switch (root.emotion) {
-        case "charging": return "#7fd67f"
-        case "low_battery": return "#e07a5f"
-        case "sleepy": return "#9aa7c7"
-        case "busy": return "#b39ddb"
-        case "notification": return "#ffd166"
-        default: return "#f2b950"
-        }
-    }
+    // Строка листа, начальный кадр, число кадров и темп для каждого состояния.
+    // Значения совпадают с assets/builtin-pet/manifest.json; при переходе
+    // на Pet Pack (M5) манифест станет единственным источником, а эта
+    // таблица уйдёт.
+    //
+    // Строка 5 даёт две анимации: первые шесть кадров — сон, последние два —
+    // низкий заряд. Ради этого и нужен startColumn.
+    readonly property var animations: ({
+        "idle":         { "row": 0, "startColumn": 0, "frames": 6, "duration": 220 },
+        "happy":        { "row": 3, "startColumn": 0, "frames": 4, "duration": 150 },
+        "curious":      { "row": 9, "startColumn": 0, "frames": 8, "duration": 170 },
+        "sleepy":       { "row": 5, "startColumn": 0, "frames": 6, "duration": 420 },
+        "charging":     { "row": 4, "startColumn": 0, "frames": 5, "duration": 120 },
+        "low_battery":  { "row": 5, "startColumn": 6, "frames": 2, "duration": 700 },
+        "notification": { "row": 6, "startColumn": 0, "frames": 6, "duration": 160 },
+        "busy":         { "row": 7, "startColumn": 0, "frames": 6, "duration": 200 }
+    })
 
-    // root. обязателен: неквалифицированное обращение здесь один раз
-    // вычислилось и перестало пересчитываться — уши и лапы оставались
-    // цвета первого состояния, пока тело меняло цвет.
-    readonly property color earColor: Qt.darker(root.bodyColor, 1.15)
+    // Неизвестное состояние откатывается на idle — это fallbackAnimation
+    // из §FR-8: отсутствие анимации не должно оставлять пустое окно.
+    readonly property var current: root.animations[root.emotion] || root.animations["idle"]
 
-    // Тень: альфа ниже порога попаданий, кликов ловить не должна.
-    Rectangle {
-        width: 96
-        height: 18
-        radius: height / 2
-        color: "#22000000"
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: 150
-    }
+    AnimatedSprite {
+        id: sprite
+        anchors.fill: parent
 
-    Item {
-        id: body
-        width: parent.width
-        height: parent.height
+        source: "lime.png"
+        frameWidth: root.cellWidth
+        frameHeight: root.cellHeight
+        frameX: root.current.startColumn * root.cellWidth
+        frameY: root.current.row * root.cellHeight
+        frameCount: root.current.frames
+        frameDuration: root.current.duration
 
-        // Дыхание. При reduced motion замирает в нейтральном положении (§7).
-        y: 4
-        NumberAnimation on y {
-            running: root.animated
-            from: 0
-            to: 8
-            duration: root.emotion === "sleepy" ? 2600 : 1400
-            easing.type: Easing.InOutSine
-            loops: Animation.Infinite
-            onStopped: body.y = 4
-        }
+        loops: AnimatedSprite.Infinite
+        // При reduced motion питомец замирает на первом кадре состояния,
+        // но остаётся видимым и продолжает менять позу при смене эмоции (§7).
+        running: true
+        paused: !root.animated
 
-        Repeater {
-            model: [-28, 28]
-            Rectangle {
-                required property int modelData
-                width: 34
-                height: 34
-                radius: 6
-                rotation: 45
-                color: root.earColor
-                x: body.width / 2 - width / 2 + modelData
-                y: root.emotion === "sleepy" ? 20 : 12
+        // Пиксель-арт: сглаживание превратило бы его в мыло.
+        smooth: false
 
-                Behavior on y {
-                    enabled: root.animated
-                    NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
-                }
-            }
-        }
-
-        Rectangle {
-            id: head
-            width: 108
-            height: 96
-            radius: 46
-            color: root.bodyColor
-            anchors.horizontalCenter: parent.horizontalCenter
-            y: 26
-
-            Behavior on color {
-                enabled: root.animated
-                ColorAnimation { duration: 320 }
-            }
-
-            Row {
-                anchors.centerIn: parent
-                anchors.verticalCenterOffset: -6
-                spacing: root.emotion === "curious" ? 30 : 26
-
-                Repeater {
-                    model: 2
-                    Rectangle {
-                        id: eye
-                        property bool blinking: false
-                        // Во сне глаза закрыты, в удивлении — шире обычного.
-                        readonly property bool shut: root.emotion === "sleepy" || blinking
-
-                        width: root.emotion === "curious" ? 14 : 12
-                        height: shut ? 2 : (root.emotion === "curious" ? 17 : 14)
-                        radius: 6
-                        color: "#2b2118"
-                        y: shut ? 6 : 0
-
-                        Timer {
-                            interval: 3400
-                            running: root.animated && root.emotion !== "sleepy"
-                            repeat: true
-                            onTriggered: blink.start()
-                        }
-
-                        SequentialAnimation {
-                            id: blink
-                            PropertyAction { target: eye; property: "blinking"; value: true }
-                            PauseAnimation { duration: 110 }
-                            PropertyAction { target: eye; property: "blinking"; value: false }
-                        }
-                    }
-                }
-            }
-
-            // Рот: улыбка в happy, ровная линия в остальных состояниях.
-            Rectangle {
-                width: root.emotion === "happy" ? 26 : 20
-                height: root.emotion === "happy" ? 12 : 8
-                radius: root.emotion === "happy" ? 6 : 4
-                color: "#2b2118"
-                anchors.horizontalCenter: parent.horizontalCenter
-                y: 60
-            }
-        }
-
-        Row {
-            anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 22
-            y: 116
-
-            Repeater {
-                model: 2
-                Rectangle {
-                    width: 30
-                    height: 26
-                    radius: 12
-                    color: root.earColor
-                }
-            }
-        }
-
-        // Значок состояния. Нужен не для красоты: без него состояния
-        // charging и low_battery различались бы только оттенком.
-        Text {
-            id: badge
-            anchors.horizontalCenter: parent.horizontalCenter
-            anchors.horizontalCenterOffset: 46
-            y: 18
-            font.pixelSize: 26
-            visible: text.length > 0
-            text: {
-                switch (root.emotion) {
-                case "charging": return "⚡"
-                case "low_battery": return "🪫"
-                case "notification": return "🔔"
-                case "busy": return "🎧"
-                case "curious": return "❓"
-                case "sleepy": return "💤"
-                default: return ""
-                }
-            }
-
-            SequentialAnimation on scale {
-                running: root.animated && badge.visible
-                loops: Animation.Infinite
-                NumberAnimation { from: 0.9; to: 1.1; duration: 700; easing.type: Easing.InOutSine }
-                NumberAnimation { from: 1.1; to: 0.9; duration: 700; easing.type: Easing.InOutSine }
-            }
-        }
+        // Кадры соседних строк не должны просачиваться по краю ячейки.
+        interpolate: false
     }
 }
