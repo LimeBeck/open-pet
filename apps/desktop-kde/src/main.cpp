@@ -1,6 +1,7 @@
 #include "activeappadapter.h"
 #include "corebridge.h"
 #include "idleadapter.h"
+#include "llmclient.h"
 #include "mediaadapter.h"
 #include "mockeventsource.h"
 #include "notificationadapter.h"
@@ -117,7 +118,31 @@ int main(int argc, char *argv[])
             qCWarning(logApp).noquote() << message;
     });
 
+    // LLM выключена, пока пользователь явно не задал провайдера (§7):
+    // без настройки приложение не делает ни одного сетевого запроса.
+    // Окно настроек — этап M7, поэтому пока конфигурация из окружения.
+    const QString llmKind = qEnvironmentVariable("OPENPET_LLM");
+    if (!llmKind.isEmpty()) {
+        const int kind = llmKind == QLatin1String("ollama")   ? 1
+            : llmKind == QLatin1String("openai")              ? 2
+            : llmKind == QLatin1String("vertex")              ? 3
+                                                              : 0;
+        core.setLlmProvider(kind,
+                            qEnvironmentVariable("OPENPET_LLM_URL"),
+                            qEnvironmentVariable("OPENPET_LLM_MODEL"),
+                            qEnvironmentVariable("OPENPET_LLM_PROJECT"),
+                            qEnvironmentVariable("OPENPET_LLM_REGION"));
+        qCInfo(logApp, "LLM включена: %s, ядро подтверждает: %d",
+               qPrintable(llmKind), core.isLlmEnabled());
+    }
+
+    LlmClient llm(&core);
+    // Ключ берётся из окружения только для проверки. Постоянное место —
+    // Secret Service/KWallet, и это работа M7 (§FR-7).
+    llm.setApiKey(qEnvironmentVariable("OPENPET_LLM_KEY"));
+
     PetViewModel viewModel(&core);
+    viewModel.setLlmClient(&llm);
     viewModel.setScale(settings.scale);
     viewModel.setReducedMotion(settings.reducedMotion);
 

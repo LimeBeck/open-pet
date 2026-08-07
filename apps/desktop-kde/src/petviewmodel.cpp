@@ -1,6 +1,7 @@
 #include "petviewmodel.h"
 
 #include "corebridge.h"
+#include "llmclient.h"
 
 #include <QLoggingCategory>
 
@@ -41,7 +42,7 @@ PetViewModel::PetViewModel(CoreBridge *core, QObject *parent)
     connect(m_core, &CoreBridge::reactionReceived, this,
             [this](const CoreBridge::Reaction &reaction) {
                 applyEmotion(reaction.animation);
-                showPhrase(reaction.phrase, reaction.ttlMs);
+                requestPhrase(reaction.phrase, reaction.ttlMs);
             });
 
     connect(m_core, &CoreBridge::settled, this, [this](int emotion) {
@@ -113,6 +114,51 @@ void PetViewModel::setSheetSource(const QUrl &source)
 
     m_sheetSource = source;
     emit sheetSourceChanged();
+}
+
+void PetViewModel::setLlmClient(LlmClient *client)
+{
+    m_llm = client;
+    if (!m_llm)
+        return;
+
+    connect(m_llm, &LlmClient::phraseReady, this, [this](const QString &phrase) {
+        // Опоздавший ответ не показывается: состояние уже сменилось,
+        // и реплика была бы не про то.
+        if (m_awaitingGeneration != m_generation)
+            return;
+        showPhrase(phrase, m_pendingTtlMs);
+        m_pendingTemplate.clear();
+    });
+
+    connect(m_llm, &LlmClient::phraseFailed, this, [this](const QString &) {
+        if (m_awaitingGeneration != m_generation)
+            return;
+        // Прозрачный откат на шаблон (§FR-6): пользователь не должен
+        // замечать, что модель не ответила.
+        showPhrase(m_pendingTemplate, m_pendingTtlMs);
+        m_pendingTemplate.clear();
+    });
+}
+
+void PetViewModel::requestPhrase(const QString &fallback, int ttlMs)
+{
+    ++m_generation;
+
+    if (fallback.isEmpty())
+        return;
+
+    if (!m_llm || !m_llm->isEnabled()) {
+        showPhrase(fallback, ttlMs);
+        return;
+    }
+
+    // Шаблон придерживается до ответа модели: подмена текста в уже открытом
+    // пузыре читалась бы хуже, чем короткая пауза перед его появлением.
+    m_pendingTemplate = fallback;
+    m_pendingTtlMs = ttlMs;
+    m_awaitingGeneration = m_generation;
+    m_llm->requestPhrase();
 }
 
 void PetViewModel::showPhrase(const QString &text, int ttlMs)

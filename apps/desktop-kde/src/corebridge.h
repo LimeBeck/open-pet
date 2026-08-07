@@ -63,6 +63,21 @@ public:
     };
     Animation animationFor(const QString &state) const;
 
+    // LLM (§FR-7). Ключ сюда не передаётся: он живёт только в хосте,
+    // а ядро формирует тело запроса без него (ADR-008).
+    struct LlmRequest {
+        QString url;
+        QString body;
+        int timeoutMs = 2500;
+    };
+
+    void setLlmProvider(int kind, const QString &baseUrl, const QString &model,
+                        const QString &project = {}, const QString &region = {});
+    bool isLlmEnabled() const;
+    bool buildLlmRequest(LlmRequest *out) const;
+    // Пустая строка означает «ответ негоден» — показывается шаблон (§FR-6).
+    QString acceptLlmResponse(const QByteArray &raw) const;
+
     // Локаль реплик. Неизвестные теги ядро приводит к английскому (§7).
     void setLocale(const QString &tag);
     void clearPhraseHistory();

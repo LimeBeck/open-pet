@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define OPENPET_ABI_VERSION 3
+#define OPENPET_ABI_VERSION 4
 
 // Длина ключа cooldown с завершающим нулём.
 #define OPENPET_COOLDOWN_KEY_SIZE 32
@@ -134,6 +134,38 @@ typedef struct {
     uint32_t cell_height;
 } OpenPetAnimation;
 
+// Провайдер LLM. Секретов здесь нет: ключ добавляет хост непосредственно
+// перед отправкой, до ядра он не доходит (ADR-008).
+typedef enum {
+    OPENPET_LLM_DISABLED = 0,
+    OPENPET_LLM_OLLAMA = 1,
+    OPENPET_LLM_OPENAI_COMPATIBLE = 2,
+    OPENPET_LLM_VERTEX_AI = 3,
+} OpenPetLlmKind;
+
+typedef struct {
+    uint32_t kind;
+    const char *base_url;
+    uintptr_t base_url_len;
+    const char *model;
+    uintptr_t model_len;
+    const char *project;
+    uintptr_t project_len;
+    const char *region;
+    uintptr_t region_len;
+} OpenPetLlmConfig;
+
+#define OPENPET_LLM_URL_SIZE 512
+#define OPENPET_LLM_BODY_SIZE 2048
+
+// Готовый запрос. Хост выполняет его как есть и не вправе добавлять в тело
+// ничего сверх этого: что покидает машину, решает ядро (§US-06).
+typedef struct {
+    char url[OPENPET_LLM_URL_SIZE];
+    char body[OPENPET_LLM_BODY_SIZE];
+    uint32_t timeout_ms;
+} OpenPetLlmRequest;
+
 typedef struct OpenPetCore OpenPetCore;
 
 // Вызывается из потока ядра, а не из потока UI. Перенос в event loop —
@@ -181,6 +213,20 @@ void openpet_core_set_phrase_history_limit(OpenPetCore *core, uint32_t limit);
 
 // Забыть историю показанных реплик — часть «сбросить локальные данные» (§9).
 void openpet_core_clear_phrase_history(OpenPetCore *core);
+
+// Настройка провайдера. kind == OPENPET_LLM_DISABLED выключает LLM,
+// и тогда приложение не делает сетевых запросов вовсе (§7).
+void openpet_core_set_llm(OpenPetCore *core, const OpenPetLlmConfig *config);
+uint8_t openpet_core_llm_enabled(const OpenPetCore *core);
+
+// Готовит запрос для последней сформированной реакции. Возвращает 1,
+// если запрос есть, 0 — если говорить не о чем или LLM выключена.
+int32_t openpet_core_build_llm_request(OpenPetCore *core, OpenPetLlmRequest *out_request);
+
+// Разбирает и очищает ответ провайдера. Возвращает 1 при годной фразе,
+// 0 при негодной — во втором случае хост показывает локальный шаблон (§FR-6).
+int32_t openpet_core_accept_llm_response(OpenPetCore *core, const char *raw, uintptr_t raw_len,
+                                         char *out_phrase, uintptr_t out_size);
 
 // Раскладка кадров для состояния активного Pet Pack. Неизвестное состояние
 // подменяется fallbackAnimation — пустого окна не бывает (§FR-8).

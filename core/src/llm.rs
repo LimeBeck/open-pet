@@ -124,7 +124,11 @@ pub fn build_request(provider: &Provider, request: &PhraseRequest) -> RequestPla
         Provider::Ollama { base_url, model } => (
             format!("{}/api/chat", base_url.trim_end_matches('/')),
             format!(
-                r#"{{"model":"{}","stream":false,"messages":[{{"role":"system","content":"{}"}},{{"role":"user","content":"{}"}}]}}"#,
+                // num_predict ограничивает длину генерации, think отключает
+                // рассуждение у моделей, которые его умеют. Без этого
+                // рассуждающая модель думает десятки секунд ради одной
+                // фразы — измерено на qwen3.5:4b, см. ADR-008.
+                r#"{{"model":"{}","stream":false,"think":false,"options":{{"num_predict":40}},"messages":[{{"role":"system","content":"{}"}},{{"role":"user","content":"{}"}}]}}"#,
                 escape_json(model),
                 system,
                 user
@@ -162,6 +166,51 @@ pub fn build_request(provider: &Provider, request: &PhraseRequest) -> RequestPla
         body,
         timeout_ms: DEFAULT_TIMEOUT_MS,
     }
+}
+
+/// Достаёт текст из ответа провайдера и приводит его в годный вид.
+///
+/// Ответ — недоверенный JSON: провайдер может быть чужим сервером,
+/// прикинувшимся OpenAI-совместимым. Поэтому разбор здесь, в ядре,
+/// а не в хосте ([ADR-007](../../docs/adr/0007-untrusted-json-parsing.md)).
+pub fn parse_response(provider: &Provider, raw: &[u8]) -> Result<String, LlmError> {
+    // Ответ великаном быть не может: мы просили одну короткую фразу.
+    // Мегабайтный ответ — либо ошибка, либо попытка занять память.
+    const MAX_RESPONSE_BYTES: usize = 64 * 1024;
+    if raw.len() > MAX_RESPONSE_BYTES {
+        return Err(LlmError::Malformed);
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(raw).map_err(|_| LlmError::Malformed)?;
+
+    let text = match provider {
+        Provider::Ollama { .. } => value
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str()),
+
+        Provider::OpenAiCompatible { .. } => value
+            .get("choices")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("message"))
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str()),
+
+        Provider::VertexAi { .. } => value
+            .get("candidates")
+            .and_then(|c| c.get(0))
+            .and_then(|c| c.get("content"))
+            .and_then(|c| c.get("parts"))
+            .and_then(|p| p.get(0))
+            .and_then(|p| p.get("text"))
+            .and_then(|t| t.as_str()),
+    };
+
+    // Отсутствие поля — не пустой ответ, а ответ не той формы: провайдер
+    // мог вернуть ошибку с кодом 200, и путать эти случаи не стоит.
+    let text = text.ok_or(LlmError::Malformed)?;
+
+    sanitize(text)
 }
 
 /// Приводит ответ модели к тому, что можно показать в пузыре (§FR-6).
@@ -304,7 +353,11 @@ mod tests {
 
         // Полей верхнего уровня ровно столько, сколько объявлено.
         let keys: Vec<&String> = body.as_object().unwrap().keys().collect();
-        assert_eq!(keys.len(), 3, "лишние поля в теле запроса: {keys:?}");
+        assert_eq!(keys.len(), 5, "лишние поля в теле запроса: {keys:?}");
+
+        // Генерация ограничена: питомцу нужна фраза, а не рассуждение.
+        assert_eq!(body["options"]["num_predict"], 40);
+        assert_eq!(body["think"], false);
     }
 
     #[test]
@@ -359,6 +412,77 @@ mod tests {
         let plan = build_request(&provider, &request());
         serde_json::from_str::<serde_json::Value>(&plan.body)
             .expect("экранирование обязано выдержать кавычку в имени модели");
+    }
+
+    #[test]
+    fn extracts_text_from_every_provider_shape() {
+        let cases: [(Provider, &str); 3] = [
+            (
+                ollama(),
+                r#"{"message":{"role":"assistant","content":"Заряжаемся!"}}"#,
+            ),
+            (
+                Provider::OpenAiCompatible {
+                    base_url: "https://api.example.com/v1".to_string(),
+                    model: "gpt-x".to_string(),
+                },
+                r#"{"choices":[{"message":{"content":"Заряжаемся!"}}]}"#,
+            ),
+            (
+                Provider::VertexAi {
+                    project: "p".to_string(),
+                    region: "r".to_string(),
+                    model: "m".to_string(),
+                },
+                r#"{"candidates":[{"content":{"parts":[{"text":"Заряжаемся!"}]}}]}"#,
+            ),
+        ];
+
+        for (provider, response) in cases {
+            assert_eq!(
+                parse_response(&provider, response.as_bytes()),
+                Ok("Заряжаемся!".to_string()),
+                "{provider:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn wrong_shape_is_malformed_not_empty() {
+        // Провайдер может вернуть ошибку с кодом 200. Путать «ответ не той
+        // формы» и «пустая фраза» не стоит: это разные причины отката.
+        let error_body = r#"{"error":{"message":"rate limit exceeded"}}"#;
+        assert_eq!(
+            parse_response(&ollama(), error_body.as_bytes()),
+            Err(LlmError::Malformed)
+        );
+    }
+
+    #[test]
+    fn garbage_response_does_not_panic() {
+        for raw in [
+            &b"not json at all"[..],
+            &b""[..],
+            &b"{"[..],
+            &b"[[[[[[[[[[["[..],
+        ] {
+            assert_eq!(parse_response(&ollama(), raw), Err(LlmError::Malformed));
+        }
+    }
+
+    #[test]
+    fn huge_response_is_rejected_before_parsing() {
+        let huge = vec![b' '; 128 * 1024];
+        assert_eq!(parse_response(&ollama(), &huge), Err(LlmError::Malformed));
+    }
+
+    #[test]
+    fn markup_from_the_model_is_cleaned_on_the_way_out() {
+        let response = r#"{"message":{"content":"**Заряжаемся!**\n\nЯ выбрал эту фразу."}}"#;
+        assert_eq!(
+            parse_response(&ollama(), response.as_bytes()),
+            Ok("Заряжаемся!".to_string())
+        );
     }
 
     #[test]

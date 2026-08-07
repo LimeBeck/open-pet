@@ -228,6 +228,65 @@ CoreBridge::Animation CoreBridge::animationFor(const QString &state) const
     return animation;
 }
 
+void CoreBridge::setLlmProvider(int kind, const QString &baseUrl, const QString &model,
+                                const QString &project, const QString &region)
+{
+    if (!m_core)
+        return;
+
+    // Буферы обязаны пережить вызов — отсюда именованные переменные.
+    const QByteArray url = baseUrl.toUtf8();
+    const QByteArray modelName = model.toUtf8();
+    const QByteArray projectId = project.toUtf8();
+    const QByteArray regionName = region.toUtf8();
+
+    OpenPetLlmConfig config {};
+    config.kind = uint32_t(kind);
+    config.base_url = url.constData();
+    config.base_url_len = size_t(url.size());
+    config.model = modelName.constData();
+    config.model_len = size_t(modelName.size());
+    config.project = projectId.constData();
+    config.project_len = size_t(projectId.size());
+    config.region = regionName.constData();
+    config.region_len = size_t(regionName.size());
+
+    openpet_core_set_llm(m_core, &config);
+}
+
+bool CoreBridge::isLlmEnabled() const
+{
+    return m_core && openpet_core_llm_enabled(m_core) != 0;
+}
+
+bool CoreBridge::buildLlmRequest(LlmRequest *out) const
+{
+    if (!m_core || !out)
+        return false;
+
+    OpenPetLlmRequest raw {};
+    if (openpet_core_build_llm_request(m_core, &raw) != 1)
+        return false;
+
+    out->url = QString::fromUtf8(raw.url);
+    out->body = QString::fromUtf8(raw.body);
+    out->timeoutMs = int(raw.timeout_ms);
+    return true;
+}
+
+QString CoreBridge::acceptLlmResponse(const QByteArray &raw) const
+{
+    if (!m_core)
+        return {};
+
+    // Тот же предел, что и у реплики: длиннее ядро всё равно не отдаст.
+    char buffer[OPENPET_PHRASE_SIZE] {};
+    const qint32 result = openpet_core_accept_llm_response(
+        m_core, raw.constData(), size_t(raw.size()), buffer, sizeof(buffer));
+
+    return result == 1 ? QString::fromUtf8(buffer) : QString();
+}
+
 void CoreBridge::setLocale(const QString &tag)
 {
     if (!m_core)

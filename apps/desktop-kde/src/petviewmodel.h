@@ -12,6 +12,8 @@
 // Граница здесь такая же строгая, как у FFI, только с другой стороны:
 // QML не знает ни о ядре, ни о событиях рабочего стола — только о текущей
 // эмоции и о том, приостановлены ли реакции.
+class LlmClient;
+
 class PetViewModel : public QObject
 {
     Q_OBJECT
@@ -65,6 +67,9 @@ public:
     // Пузырь закрывается по клику, не только по таймеру (§FR-6).
     Q_INVOKABLE void dismissPhrase();
 
+    // Необязательная зависимость: без неё питомец говорит только шаблонами.
+    void setLlmClient(LlmClient *client);
+
 signals:
     void emotionChanged();
     void phraseChanged();
@@ -77,6 +82,7 @@ private:
     void applyEmotion(int emotion);
 
     void showPhrase(const QString &text, int ttlMs);
+    void requestPhrase(const QString &fallback, int ttlMs);
 
     CoreBridge *m_core = nullptr;
     int m_emotion = 0;
@@ -86,6 +92,18 @@ private:
     // QML это различие не касается: он получает готовый URL.
     QUrl m_sheetSource = QUrl(QStringLiteral("qrc:/qt/qml/OpenPet/Ui/lime.png"));
     QTimer m_phraseTimer;
+
+    // Необязательная зависимость: без неё питомец говорит только шаблонами.
+    LlmClient *m_llm = nullptr;
+    // Шаблон, ждущий, пока ответит модель. Если она не ответит или ответит
+    // негодно, покажется именно он (§FR-6).
+    QString m_pendingTemplate;
+    int m_pendingTtlMs = 0;
+    // Номер поколения: ответ, опоздавший к следующему состоянию,
+    // не показывается — он уже не про то, что происходит.
+    quint64 m_generation = 0;
+    quint64 m_awaitingGeneration = 0;
+
     qreal m_scale = 1.0;
     bool m_reducedMotion = false;
 };

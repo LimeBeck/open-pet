@@ -7,14 +7,15 @@
 use crate::behavior::{Reaction, StateMachine, Suppressed};
 use crate::emotion::Emotion;
 use crate::event::{DesktopEvent, MediaState, PowerState, SessionState};
+use crate::llm::{self, PhraseRequest, Provider};
 use crate::petpack::PackStore;
-use crate::phrase::{Locale, PhraseBook};
+use crate::phrase::{Locale, PhraseBook, PhraseIntent};
 
 use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 
-pub const ABI_VERSION: u32 = 3;
+pub const ABI_VERSION: u32 = 4;
 const COOLDOWN_KEY_SIZE: usize = 32;
 const PHRASE_SIZE: usize = 192;
 
@@ -85,11 +86,40 @@ pub struct FfiAnimation {
     cell_height: u32,
 }
 
+const LLM_URL_SIZE: usize = 512;
+const LLM_BODY_SIZE: usize = 2048;
+
+#[repr(C)]
+pub struct FfiLlmConfig {
+    kind: u32,
+    base_url: *const c_char,
+    base_url_len: usize,
+    model: *const c_char,
+    model_len: usize,
+    project: *const c_char,
+    project_len: usize,
+    region: *const c_char,
+    region_len: usize,
+}
+
+#[repr(C)]
+pub struct FfiLlmRequest {
+    url: [c_char; LLM_URL_SIZE],
+    body: [c_char; LLM_BODY_SIZE],
+    timeout_ms: u32,
+}
+
 pub struct Core {
     machine: Mutex<StateMachine>,
     phrases: Mutex<PhraseBook>,
     packs: Mutex<PackStore>,
     callbacks: Mutex<Callbacks>,
+    /// Настроенный провайдер. `None` означает, что сеть не используется
+    /// вовсе — не «используется с ошибкой», а не используется (§7).
+    provider: Mutex<Option<Provider>>,
+    /// Повод последней реакции. Хранится здесь, чтобы намерение не пришлось
+    /// тащить через границу: хост запрашивает план сразу после реакции.
+    last_request: Mutex<Option<PhraseRequest>>,
 }
 
 impl Core {
@@ -98,6 +128,8 @@ impl Core {
             machine: Mutex::new(StateMachine::new()),
             phrases: Mutex::new(PhraseBook::default()),
             packs: Mutex::new(PackStore::new()),
+            provider: Mutex::new(None),
+            last_request: Mutex::new(None),
             callbacks: Mutex::new(Callbacks {
                 reaction: None,
                 log: None,
@@ -342,6 +374,21 @@ pub unsafe extern "C" fn openpet_core_push_event(
         Ok(Ok(reaction)) => {
             // Текст подбирается здесь, а не в rule engine: правило знает
             // намерение, каталог — формулировку (§FR-6).
+            if let (Some(intent), Ok(mut slot)) = (reaction.phrase_intent, core.last_request.lock())
+            {
+                let locale = core
+                    .phrases
+                    .lock()
+                    .map(|book| book.locale())
+                    .unwrap_or(Locale::En);
+
+                *slot = Some(PhraseRequest {
+                    intent,
+                    emotion: reaction.emotion,
+                    locale,
+                });
+            }
+
             let phrase = reaction.phrase_intent.and_then(|intent| {
                 core.phrases
                     .lock()
@@ -516,6 +563,128 @@ pub unsafe extern "C" fn openpet_core_animation(
             cell_height,
         };
     }));
+}
+
+fn provider_from_config(config: &FfiLlmConfig) -> Option<Provider> {
+    // # Safety: строки конфигурации живут на время вызова — это записано
+    // в контракте, и хост обязан это соблюдать.
+    let read = |ptr, len| unsafe { read_string(ptr, len) }.unwrap_or_default();
+
+    let base_url = read(config.base_url, config.base_url_len);
+    let model = read(config.model, config.model_len);
+    let project = read(config.project, config.project_len);
+    let region = read(config.region, config.region_len);
+
+    match config.kind {
+        1 => Some(Provider::Ollama { base_url, model }),
+        2 => Some(Provider::OpenAiCompatible { base_url, model }),
+        3 => Some(Provider::VertexAi {
+            project,
+            region,
+            model,
+        }),
+        _ => None,
+    }
+}
+
+/// # Safety
+/// `core` и `config` должны быть валидными указателями, строки внутри
+/// конфигурации — живыми на время вызова.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_set_llm(core: *mut Core, config: *const FfiLlmConfig) {
+    let Some(core) = core.as_ref() else { return };
+
+    let provider = config.as_ref().and_then(provider_from_config);
+
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Ok(mut slot) = core.provider.lock() {
+            *slot = provider;
+        }
+    }));
+}
+
+/// # Safety
+/// `core` должен быть валидным указателем на ядро.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_llm_enabled(core: *const Core) -> u8 {
+    let Some(core) = core.as_ref() else { return 0 };
+    core.provider
+        .lock()
+        .map(|slot| u8::from(slot.is_some()))
+        .unwrap_or(0)
+}
+
+/// # Safety
+/// `core` и `out_request` должны быть валидными указателями.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_build_llm_request(
+    core: *mut Core,
+    out_request: *mut FfiLlmRequest,
+) -> c_int {
+    let (Some(core), Some(slot)) = (core.as_ref(), out_request.as_mut()) else {
+        return -1;
+    };
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let provider = core.provider.lock().ok()?.clone()?;
+        let request = (*core.last_request.lock().ok()?)?;
+        Some(llm::build_request(&provider, &request))
+    }));
+
+    match outcome {
+        Ok(Some(plan)) => {
+            // Не влезло — значит, настройки пользователя неправдоподобно
+            // длинные. Лучше не отправить ничего, чем отправить обрезок.
+            if plan.url.len() >= LLM_URL_SIZE || plan.body.len() >= LLM_BODY_SIZE {
+                core.log(LOG_WARNING, "запрос к LLM не помещается в буфер");
+                return 0;
+            }
+
+            slot.url = [0; LLM_URL_SIZE];
+            slot.body = [0; LLM_BODY_SIZE];
+            fill_utf8(&mut slot.url, &plan.url);
+            fill_utf8(&mut slot.body, &plan.body);
+            slot.timeout_ms = plan.timeout_ms;
+            1
+        }
+        Ok(None) => 0,
+        Err(_) => -2,
+    }
+}
+
+/// # Safety
+/// `core`, `raw` и `out_phrase` должны быть валидными указателями,
+/// `out_phrase` — буфером на `out_size` байт.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_accept_llm_response(
+    core: *mut Core,
+    raw: *const c_char,
+    raw_len: usize,
+    out_phrase: *mut c_char,
+    out_size: usize,
+) -> c_int {
+    let Some(core) = core.as_ref() else { return -1 };
+    if raw.is_null() || out_phrase.is_null() || out_size == 0 {
+        return -1;
+    }
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let provider = core.provider.lock().ok()?.clone()?;
+        let bytes = std::slice::from_raw_parts(raw as *const u8, raw_len);
+        llm::parse_response(&provider, bytes).ok()
+    }));
+
+    match outcome {
+        Ok(Some(phrase)) => {
+            let buffer = std::slice::from_raw_parts_mut(out_phrase, out_size);
+            buffer.fill(0);
+            fill_utf8(buffer, &phrase);
+            1
+        }
+        // Негодный ответ — не ошибка вызова: хост показывает шаблон (§FR-6).
+        Ok(None) => 0,
+        Err(_) => -2,
+    }
 }
 
 #[cfg(test)]
