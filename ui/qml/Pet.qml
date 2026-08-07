@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 
 // Встроенный питомец M1.
@@ -33,7 +35,10 @@ Item {
         }
     }
 
-    readonly property color earColor: Qt.darker(bodyColor, 1.15)
+    // root. обязателен: неквалифицированное обращение здесь один раз
+    // вычислилось и перестало пересчитываться — уши и лапы оставались
+    // цвета первого состояния, пока тело меняло цвет.
+    readonly property color earColor: Qt.darker(root.bodyColor, 1.15)
 
     // Тень: альфа ниже порога попаданий, кликов ловить не должна.
     Rectangle {
