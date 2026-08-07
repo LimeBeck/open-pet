@@ -21,8 +21,10 @@ jobs:
     steps:
       - name: Зависимости
         run: |
+          # github-cli нужен на последнем шаге: в базовом образе Arch его нет,
+          # и первый релиз упал именно на этом — собрав и упаковав всё остальное.
           pacman -Syu --noconfirm --needed \
-            git cmake ninja rust \
+            git cmake ninja rust github-cli \
             qt6-base qt6-declarative qt6-wayland \
             layer-shell-qt kidletime kwallet
 
@@ -85,7 +87,7 @@ jobs:
 
           Собрано на Arch с Qt 6.11 и KDE Frameworks 6. На других дистрибутивах
           и других версиях Qt работоспособность не проверялась — см.
-          [матрицу совместимости](docs/reference-system.md).
+          матрицу совместимости в `docs/reference-system.md`.
 
           Требуется KDE Plasma 6.2+ на Wayland: питомец живёт в layer-shell
           поверхности, и без неё приложение не запустится.
