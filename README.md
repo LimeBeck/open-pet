@@ -152,7 +152,7 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 
 ## Лицензия
 
-[MIT](LICENSE).
+[MIT](LICENSE) — и код, и графика встроенного питомца.
 
 Зависимости от Qt 6, KDE Frameworks и LayerShellQt распространяются под LGPL —
 при динамической компоновке это совместимо с MIT для нашего кода, но накладывает
