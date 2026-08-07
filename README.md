@@ -29,6 +29,7 @@ LLM — опциональное дополнение, включаемое яв
 | [`docs/privacy-model.md`](docs/privacy-model.md) | Что наблюдается, что нет, что хранится, что уходит в LLM |
 | [`docs/reference-system.md`](docs/reference-system.md) | Эталонная система, методика замеров и отклонения от §7 |
 | [`docs/adr/`](docs/adr/README.md) | Принятые архитектурные решения и их процесс |
+| [`docs/backlog.md`](docs/backlog.md) | Замеченное, но не запланированное |
 | [`spikes/`](spikes/README.md) | Пробы этапа M0 и их результаты |
 | [`AGENTS.md`](AGENTS.md) | Правила работы в репозитории для людей и агентов |
 
