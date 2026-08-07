@@ -9,8 +9,11 @@ import QtQuick
 // отрисовки пришлось бы вживлять прямо сюда
 // ([ADR-005](../../docs/adr/0005-pet-pack-sprite-sheet.md)).
 //
-// Непрерывных QML-анимаций тоже нет: сцена становится грязной только при
-// смене кадра. Для бюджета §7 это принципиально.
+// Кадр меняется таймером, а не AnimatedSprite. Разница не в удобстве:
+// AnimatedSprite перерисовывается каждый кадр экрана независимо от того,
+// сменился ли спрайт, и на дисплее 90 Гц это 90 перерисовок в секунду
+// вместо четырёх. Здесь сцена грязнится ровно при смене кадра, а между
+// сменами не происходит ничего.
 Item {
     id: root
 
@@ -23,30 +26,48 @@ Item {
     property int frameDuration: 200
     property bool animated: true
 
+    // Номер кадра внутри анимации, не столбец листа.
+    property int frameIndex: 0
+
     implicitWidth: root.cellWidth
     implicitHeight: root.cellHeight
 
-    AnimatedSprite {
-        id: sprite
+    // Смена анимации начинает её с первого кадра: иначе питомец,
+    // перешедший в короткое состояние, показал бы его с середины.
+    onRowChanged: root.frameIndex = 0
+    onStartColumnChanged: root.frameIndex = 0
+    onFramesChanged: root.frameIndex = 0
+
+    Item {
         anchors.fill: parent
+        // Окно в лист: видно ровно одну ячейку.
+        clip: true
 
-        source: root.sheet
-        frameWidth: root.cellWidth
-        frameHeight: root.cellHeight
-        frameX: root.startColumn * root.cellWidth
-        frameY: root.row * root.cellHeight
-        frameCount: Math.max(1, root.frames)
-        frameDuration: Math.max(20, root.frameDuration)
+        Image {
+            id: sheetImage
 
-        loops: AnimatedSprite.Infinite
+            source: root.sheet
+            // Лист сдвигается целиком — это перенос уже загруженной текстуры,
+            // без повторного разбора PNG на каждом кадре.
+            x: -(root.startColumn + root.frameIndex) * root.cellWidth
+            y: -root.row * root.cellHeight
+
+            // Пиксель-арт: сглаживание превратило бы его в мыло.
+            smooth: false
+            // Лист кладётся в текстуру как есть: масштабирование целиком
+            // исказило бы соседние ячейки по краям.
+            fillMode: Image.Pad
+            horizontalAlignment: Image.AlignLeft
+            verticalAlignment: Image.AlignTop
+        }
+    }
+
+    Timer {
         // При reduced motion питомец замирает на первом кадре состояния,
         // но остаётся видимым и меняет позу при смене эмоции (§7).
-        running: true
-        paused: !root.animated
-
-        // Пиксель-арт: сглаживание превратило бы его в мыло.
-        smooth: false
-        // Кадры соседних строк не должны просачиваться по краю ячейки.
-        interpolate: false
+        running: root.animated && root.frames > 1 && root.sheet != ""
+        interval: Math.max(20, root.frameDuration)
+        repeat: true
+        onTriggered: root.frameIndex = (root.frameIndex + 1) % Math.max(1, root.frames)
     }
 }
