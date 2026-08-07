@@ -17,6 +17,8 @@ struct Settings {
     qreal scale = 1.0;
     bool paused = false;
     bool reducedMotion = false;
+    // Порог простоя в секундах (§US-03: «настраиваемый период простоя»).
+    int idleSeconds = 300;
 
     static Settings load();
     void save() const;

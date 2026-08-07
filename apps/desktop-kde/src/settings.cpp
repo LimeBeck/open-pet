@@ -44,11 +44,13 @@ Settings Settings::load()
     settings.scale = store.value(QStringLiteral("overlay/scale"), 1.0).toReal();
     settings.paused = store.value(QStringLiteral("behavior/paused"), false).toBool();
     settings.reducedMotion = store.value(QStringLiteral("a11y/reducedMotion"), false).toBool();
+    settings.idleSeconds = store.value(QStringLiteral("behavior/idleSeconds"), 300).toInt();
 
     // Чужие или испорченные значения не должны делать питомца невидимым.
     settings.scale = qBound(0.75, settings.scale, 2.0);
     settings.marginRight = qBound(0, settings.marginRight, 4000);
     settings.marginBottom = qBound(0, settings.marginBottom, 4000);
+    settings.idleSeconds = qBound(5, settings.idleSeconds, 3600);
 
     return settings;
 }
@@ -62,4 +64,5 @@ void Settings::save() const
     store.setValue(QStringLiteral("overlay/scale"), scale);
     store.setValue(QStringLiteral("behavior/paused"), paused);
     store.setValue(QStringLiteral("a11y/reducedMotion"), reducedMotion);
+    store.setValue(QStringLiteral("behavior/idleSeconds"), idleSeconds);
 }

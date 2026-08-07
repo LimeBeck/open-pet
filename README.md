@@ -7,8 +7,9 @@ Desktop AI Pet — постоянно доступный анимированн�
 эмоцию и анимацию, показывает короткие реплики. Работает полностью локально;
 LLM — опциональное дополнение, включаемое явно.
 
-> **Статус:** M2. Питомец живёт на layer-shell overlay, меняет состояния
-> и говорит шаблонными репликами на ru/en; источники событий — заглушка до M3.
+> **Статус:** M3. Питомец реагирует на настоящие события системы —
+> простой, питание, сон и блокировку. Активное приложение, уведомления
+> и медиа появятся в M4.
 
 ## Источник истины
 
@@ -59,7 +60,7 @@ QML UI (ui/qml)
   ↓ PetViewModel
 Qt/KDE Desktop Host (apps/desktop-kde)
   ├─ LayerShellQt, tray, input region  (platform/kde-wayland)
-  ├─ адаптеры событий                  (M3–M4, сейчас заглушка)
+  ├─ KIdleTime, UPower, login1         (platform/kde-wayland)
   └─ CoreBridge — узкий C ABI          (platform/contracts)
           ↓ нормализованные DTO
 Rust Core (core)
@@ -131,9 +132,26 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 |---|---|
 | `OPENPET_NO_REGION` | не задавать input region: окно ловит ввод целиком |
 | `OPENPET_NO_TRAY` | не показывать значок в трее |
+| `OPENPET_IDLE_SECONDS` | порог простоя в секундах: ждать пять минут ради одного события неразумно |
+| `OPENPET_MOCK_EVENTS` | гонять сценарий заглушки — состояния, которых пока не даёт ни один источник |
 
 Питомца нельзя закрыть кликом — у окна нет ни рамки, ни клавиатуры. Выход через
 трей или `pkill -x open-pet`.
+
+## Источники событий
+
+| Источник | Механизм | Что даёт | Этап |
+|---|---|---|---|
+| Простой и возвращение | KIdleTime | время бездействия, переход idle ↔ active | M3 |
+| Питание | UPower по системной шине | флаг сети, процент, состояние заряда | M3 |
+| Сон и пробуждение | `org.freedesktop.login1` | `PrepareForSleep` | M3 |
+| Блокировка экрана | `org.freedesktop.ScreenSaver` | `ActiveChanged` | M3 |
+| Активное приложение | KWin module | нормализованный app id | M4, [ADR-003](docs/adr/0003-kwin-integration.md) |
+| Уведомления | под вопросом | факт события | M4, [ADR-004](docs/adr/0004-notification-observation.md) |
+| Медиа | MPRIS | `playing`/`paused`/`stopped` | M4 |
+
+Каждый источник публикует состояние здоровья (§FR-4). Недоступность —
+штатная ситуация: приложение работает без этой capability, а не падает.
 
 ## Этапы
 
@@ -141,8 +159,8 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 |---|---|---|
 | M0 | Technical spikes: LayerShellQt, input region, Rust↔C++ bridge | закрыт |
 | M1 | Walking skeleton: репозиторий, CI, host, tray, встроенный питомец | закрыт |
-| M2 | Behavior core: шаблонные реплики, история, локализация | **текущий** |
-| M3 | KDE base integration: idle, UPower, sleep/resume, session | — |
+| M2 | Behavior core: шаблонные реплики, история, локализация | закрыт |
+| M3 | KDE base integration: idle, UPower, sleep/resume, session | **текущий** |
 | M4 | Context integrations: KWin active-app, MPRIS, уведомления | — |
 | M5 | Pet Pack v1: schema, validator, импорт, локализации | — |
 | M6 | LLM gateway: Ollama, OpenAI-compatible, Vertex AI, secrets | — |

@@ -1,7 +1,10 @@
 #include "corebridge.h"
+#include "idleadapter.h"
 #include "mockeventsource.h"
 #include "overlaysurface.h"
 #include "petviewmodel.h"
+#include "poweradapter.h"
+#include "sessionadapter.h"
 #include "settings.h"
 
 #include <QAction>
@@ -25,6 +28,36 @@ namespace {
 // Периодичность опроса «не пора ли вернуться в покой». Раз в секунду —
 // достаточно точно для ttl в секундах и не создаёт нагрузки.
 constexpr int kSettleIntervalMs = 1000;
+
+OpenPetPowerState toContract(PowerAdapter::Kind kind)
+{
+    switch (kind) {
+    case PowerAdapter::Kind::Charging:
+        return OPENPET_POWER_CHARGING;
+    case PowerAdapter::Kind::Discharging:
+        return OPENPET_POWER_DISCHARGING;
+    case PowerAdapter::Kind::Full:
+        return OPENPET_POWER_FULL;
+    case PowerAdapter::Kind::Unknown:
+        break;
+    }
+    return OPENPET_POWER_UNKNOWN;
+}
+
+OpenPetSessionState toContract(SessionAdapter::State state)
+{
+    switch (state) {
+    case SessionAdapter::State::Locked:
+        return OPENPET_SESSION_LOCKED;
+    case SessionAdapter::State::Sleeping:
+        return OPENPET_SESSION_SLEEPING;
+    case SessionAdapter::State::Resumed:
+        return OPENPET_SESSION_RESUMED;
+    case SessionAdapter::State::Active:
+        break;
+    }
+    return OPENPET_SESSION_ACTIVE;
+}
 
 } // namespace
 
@@ -162,9 +195,56 @@ int main(int argc, char *argv[])
     QObject::connect(&settleTimer, &QTimer::timeout, &core, &CoreBridge::settle);
     settleTimer.start(kSettleIntervalMs);
 
-    // Источники событий M1 — заглушка; настоящие адаптеры в M3–M4.
+    // Источники событий (§FR-3). Каждый публикует своё состояние здоровья:
+    // недоступность — штатная ситуация, а не отказ запуска (§10).
+    const auto reportCapability = [](EventSource *source) {
+        QObject::connect(source, &EventSource::capabilityChanged,
+                         [source](CapabilityState state, const QString &reason) {
+                             qCInfo(logApp).noquote()
+                                 << QStringLiteral("источник %1: %2%3")
+                                        .arg(source->name(), capabilityStateName(state),
+                                             reason.isEmpty() ? QString()
+                                                              : QStringLiteral(" — ") + reason);
+                         });
+    };
+
+    // Порог простоя можно укоротить для проверки, не трогая настройки:
+    // ждать пять минут ради одного события неразумно.
+    const int idleSeconds = qEnvironmentVariableIntValue("OPENPET_IDLE_SECONDS") > 0
+        ? qEnvironmentVariableIntValue("OPENPET_IDLE_SECONDS")
+        : settings.idleSeconds;
+
+    IdleAdapter idleSource(idleSeconds);
+    reportCapability(&idleSource);
+    QObject::connect(&idleSource, &IdleAdapter::idleThresholdReached,
+                     &core, &CoreBridge::pushIdleThreshold);
+    QObject::connect(&idleSource, &IdleAdapter::activityResumed,
+                     &core, &CoreBridge::pushActivityResumed);
+
+    PowerAdapter powerSource;
+    reportCapability(&powerSource);
+    QObject::connect(&powerSource, &PowerAdapter::powerChanged,
+                     [&core](bool onBattery, int percent, PowerAdapter::Kind kind) {
+                         core.pushPowerChanged(onBattery, percent, toContract(kind));
+                     });
+
+    SessionAdapter sessionSource;
+    reportCapability(&sessionSource);
+    QObject::connect(&sessionSource, &SessionAdapter::sessionChanged,
+                     [&core](SessionAdapter::State state) {
+                         core.pushSessionChanged(toContract(state));
+                     });
+
+    idleSource.start();
+    powerSource.start();
+    sessionSource.start();
+
+    // Заглушка остаётся доступной для проверки состояний, которых не даёт
+    // ни один настоящий источник: активное приложение, уведомления и медиа
+    // появятся только в M4.
     MockEventSource mockEvents(&core);
-    mockEvents.start();
+    if (qEnvironmentVariableIsSet("OPENPET_MOCK_EVENTS"))
+        mockEvents.start();
 
     // Диагностический выключатель трея: он тянет за собой стек виджетов,
     // и надо было проверить, не он ли мешает отрисовке overlay.
