@@ -40,6 +40,124 @@ pub enum Provider {
     },
 }
 
+/// Учётные данные Google ADC, пригодные для обмена на токен доступа.
+///
+/// Поддерживается только `authorized_user` — тот вид, который создаёт
+/// `gcloud auth application-default login`. У него обмен идёт обычным POST.
+///
+/// `service_account` намеренно **не** поддерживается: его ключ требует
+/// подписи RS256, то есть криптобиблиотеки в ядре, которое сейчас имеет
+/// три зависимости. Ради декоративной реплики это несоразмерно,
+/// и §14 прямо разрешает не блокировать MVP на Vertex.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdcCredentials {
+    pub client_id: String,
+    pub client_secret: String,
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdcError {
+    /// Файл не разбирается.
+    Malformed,
+    /// Учётные данные сервисного аккаунта: нужен RS256, которого здесь нет.
+    ServiceAccountUnsupported,
+    /// Тип не опознан или полей не хватает.
+    Unsupported,
+}
+
+/// Разбирает `application_default_credentials.json`.
+///
+/// Файл пользовательский, но всё равно недоверенный ввод: он мог оказаться
+/// чем угодно ([ADR-007](../../docs/adr/0007-untrusted-json-parsing.md)).
+/// Секреты остаются у вызывающего и в ядре не задерживаются.
+pub fn parse_adc(raw: &[u8]) -> Result<AdcCredentials, AdcError> {
+    const MAX_BYTES: usize = 64 * 1024;
+    if raw.len() > MAX_BYTES {
+        return Err(AdcError::Malformed);
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(raw).map_err(|_| AdcError::Malformed)?;
+
+    match value.get("type").and_then(|t| t.as_str()) {
+        Some("authorized_user") => {}
+        Some("service_account") => return Err(AdcError::ServiceAccountUnsupported),
+        _ => return Err(AdcError::Unsupported),
+    }
+
+    let field = |name: &str| {
+        value
+            .get(name)
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+
+    Ok(AdcCredentials {
+        client_id: field("client_id").ok_or(AdcError::Unsupported)?,
+        client_secret: field("client_secret").ok_or(AdcError::Unsupported)?,
+        refresh_token: field("refresh_token").ok_or(AdcError::Unsupported)?,
+    })
+}
+
+/// Запрос обмена refresh-токена на токен доступа.
+///
+/// Тело содержит секрет, поэтому в диагностику оно не попадает никогда
+/// и в предпросмотре payload из §9 не показывается: там показывается то,
+/// что уходит **провайдеру модели**, а это запрос к службе аутентификации.
+pub fn build_token_request(credentials: &AdcCredentials) -> RequestPlan {
+    let body = format!(
+        "client_id={}&client_secret={}&refresh_token={}&grant_type=refresh_token",
+        urlencode(&credentials.client_id),
+        urlencode(&credentials.client_secret),
+        urlencode(&credentials.refresh_token),
+    );
+
+    RequestPlan {
+        url: "https://oauth2.googleapis.com/token".to_string(),
+        body,
+        timeout_ms: 6_000,
+    }
+}
+
+/// Токен доступа и его срок жизни в секундах.
+pub fn parse_token_response(raw: &[u8]) -> Option<(String, u32)> {
+    const MAX_BYTES: usize = 64 * 1024;
+    if raw.len() > MAX_BYTES {
+        return None;
+    }
+
+    let value: serde_json::Value = serde_json::from_slice(raw).ok()?;
+    let token = value.get("access_token")?.as_str()?.to_string();
+    if token.is_empty() {
+        return None;
+    }
+
+    // Срок жизни может отсутствовать; час — то, что Google отдаёт на практике,
+    // и заниженное значение безопаснее завышенного.
+    let expires = value
+        .get("expires_in")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(3600)
+        .min(u64::from(u32::MAX)) as u32;
+
+    Some((token, expires))
+}
+
+/// Экранирование для `application/x-www-form-urlencoded`.
+fn urlencode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
 /// Проверка связи с провайдером (§FR-7, `health_check`).
 ///
 /// Отдельный запрос, потому что проверять связь генерацией реплики —
@@ -519,6 +637,96 @@ mod tests {
         let plan = build_request(&provider, &request());
         serde_json::from_str::<serde_json::Value>(&plan.body)
             .expect("экранирование обязано выдержать кавычку в имени модели");
+    }
+
+    #[test]
+    fn parses_user_adc() {
+        let raw = br#"{"type":"authorized_user","client_id":"cid","client_secret":"secret","refresh_token":"rt"}"#;
+        assert_eq!(
+            parse_adc(raw),
+            Ok(AdcCredentials {
+                client_id: "cid".to_string(),
+                client_secret: "secret".to_string(),
+                refresh_token: "rt".to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn service_account_is_rejected_with_its_own_reason() {
+        // Отдельная причина, а не общий отказ: пользователю нужно понять,
+        // что чинить — не файл, а способ входа.
+        let raw = br#"{"type":"service_account","private_key":"-----BEGIN PRIVATE KEY-----"}"#;
+        assert_eq!(parse_adc(raw), Err(AdcError::ServiceAccountUnsupported));
+    }
+
+    #[test]
+    fn broken_adc_does_not_panic() {
+        for raw in [
+            &b""[..],
+            &b"{"[..],
+            &b"[]"[..],
+            &b"{\"type\":\"authorized_user\"}"[..],
+        ] {
+            assert!(parse_adc(raw).is_err());
+        }
+    }
+
+    #[test]
+    fn token_request_escapes_the_secret() {
+        let credentials = AdcCredentials {
+            client_id: "id with space".to_string(),
+            client_secret: "se&cret=1".to_string(),
+            refresh_token: "rt/+".to_string(),
+        };
+        let plan = build_token_request(&credentials);
+
+        // Незаэкранированный & разорвал бы тело на лишние поля.
+        assert!(
+            plan.body.contains("client_secret=se%26cret%3D1"),
+            "{}",
+            plan.body
+        );
+        assert!(
+            plan.body.contains("client_id=id%20with%20space"),
+            "{}",
+            plan.body
+        );
+        assert!(
+            plan.body.contains("refresh_token=rt%2F%2B"),
+            "{}",
+            plan.body
+        );
+        assert_eq!(plan.url, "https://oauth2.googleapis.com/token");
+    }
+
+    #[test]
+    fn reads_access_token_and_lifetime() {
+        let raw = br#"{"access_token":"ya29.abc","expires_in":3599,"token_type":"Bearer"}"#;
+        assert_eq!(
+            parse_token_response(raw),
+            Some(("ya29.abc".to_string(), 3599))
+        );
+    }
+
+    #[test]
+    fn token_without_lifetime_gets_an_hour() {
+        let raw = br#"{"access_token":"ya29.abc"}"#;
+        assert_eq!(
+            parse_token_response(raw),
+            Some(("ya29.abc".to_string(), 3600))
+        );
+    }
+
+    #[test]
+    fn empty_or_broken_token_response_is_none() {
+        for raw in [
+            &br#"{"access_token":""}"#[..],
+            &br#"{"error":"invalid_grant"}"#[..],
+            &b"not json"[..],
+        ] {
+            assert_eq!(parse_token_response(raw), None);
+        }
     }
 
     #[test]

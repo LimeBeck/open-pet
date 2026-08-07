@@ -160,6 +160,7 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 | `OPENPET_AUTOSTART` | `on` или `off` — включить автозапуск и выйти, для скриптов и упаковки |
 | `OPENPET_HEALTHCHECK` | проверить связь с провайдером и выйти; код возврата 0 — модель найдена |
 | `OPENPET_IMPORT_PACK` | установить Pet Pack из архива по пути и выйти |
+| `OPENPET_GOOGLE_ADC` | путь к учётным данным Google вместо стандартного |
 
 Питомца нельзя закрыть кликом — у окна нет ни рамки, ни клавиатуры. Выход через
 трей или `pkill -x open-pet`.
@@ -229,6 +230,22 @@ kwriteconfig6 --file kwinrc --group Plugins --key openpet-active-windowEnabled f
 Все семь ADR приняты. Спецификация — v0.3: §7 переведён на `Private_Dirty`
 ([ADR-006](docs/adr/0006-memory-metric.md)), §FR-8 — на спрайтовый лист
 ([ADR-005](docs/adr/0005-pet-pack-sprite-sheet.md)).
+
+### Vertex AI
+
+Vertex не принимает статический ключ: нужен токен доступа. Приложение
+получает его само, обменивая учётные данные Google ADC — те, что создаёт:
+
+```bash
+gcloud auth application-default login
+```
+
+Поддерживается только вид `authorized_user`. Учётные данные **сервисного
+аккаунта не поддерживаются**: их ключ требует подписи RS256, то есть
+криптобиблиотеки в ядре, у которого сейчас три зависимости — несоразмерно
+ради декоративной реплики ([ADR-008](docs/adr/0008-llm-transport-boundary.md)).
+
+Токен обновляется по надобности и хранится только в памяти процесса.
 
 ## Релизы
 

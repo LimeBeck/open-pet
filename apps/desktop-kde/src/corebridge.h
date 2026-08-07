@@ -91,6 +91,18 @@ public:
     void rollbackPack();
     QString activePackId() const;
 
+    struct TokenExchange {
+        bool ok = false;
+        // Отдельно от общей неудачи: чинить нужно способ входа, а не файл.
+        bool serviceAccountUnsupported = false;
+        LlmRequest request;
+    };
+
+    // Обмен учётных данных Google ADC на токен доступа (ADR-008, «Уточнение»).
+    TokenExchange buildTokenRequest(const QByteArray &adc) const;
+    // Возвращает срок жизни в секундах, 0 при неудаче.
+    int acceptTokenResponse(const QByteArray &raw, QString *outToken) const;
+
     // Проверка связи (§FR-7). Возвращает false, если ядру нечего спросить.
     bool buildHealthRequest(LlmRequest *out) const;
     // 1 — провайдер ответил и модель есть, 0 — модели нет, <0 — не разобрано.

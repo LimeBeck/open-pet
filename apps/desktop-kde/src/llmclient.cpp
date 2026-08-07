@@ -7,6 +7,7 @@
 #include <QNetworkProxyFactory>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QFile>
 #include <QTimer>
 
 Q_LOGGING_CATEGORY(logLlm, "openpet.llm")
@@ -76,6 +77,23 @@ void LlmClient::setProxy(int mode, const QString &host, int port, const QString 
 
 void LlmClient::requestPhrase()
 {
+    if (needsToken()) {
+        // Токен добывается до запроса, а не по 401: получить отказ уже
+        // на реплике значит промолчать там, где шаблон был бы уместнее.
+        ensureAccessToken([this](bool ok) {
+            if (ok)
+                sendPhraseRequest();
+            else
+                emit phraseFailed(QStringLiteral("no-token"));
+        });
+        return;
+    }
+
+    sendPhraseRequest();
+}
+
+void LlmClient::sendPhraseRequest()
+{
     // Каждый выход отсюда обязан сообщить о неудаче. Молчаливый возврат
     // оставляет придержанный шаблон ждать ответа, которого не будет,
     // и питомец немеет навсегда — хуже, чем неработающая LLM.
@@ -120,9 +138,9 @@ void LlmClient::requestPhrase()
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::ManualRedirectPolicy);
 
-    if (!m_apiKey.isEmpty()) {
-        request.setRawHeader("Authorization", "Bearer " + m_apiKey.toUtf8());
-    }
+    const QString authorization = authorizationValue();
+    if (!authorization.isEmpty())
+        request.setRawHeader("Authorization", authorization.toUtf8());
 
     QNetworkReply *reply = m_network.post(request, plan.body.toUtf8());
     m_inFlight = reply;
@@ -130,7 +148,115 @@ void LlmClient::requestPhrase()
     connect(reply, &QNetworkReply::finished, this, [this, reply] { finish(reply); });
 }
 
+void LlmClient::setVertexCredentialsPath(const QString &path)
+{
+    if (m_adcPath == path)
+        return;
+
+    m_adcPath = path;
+    // Учётные данные сменились — прежний токен к ним отношения не имеет.
+    m_accessToken.clear();
+    m_tokenExpiry = QDateTime();
+}
+
+QString LlmClient::authorizationValue() const
+{
+    // Для Vertex — токен ADC, для остальных — ключ пользователя.
+    if (!m_accessToken.isEmpty())
+        return QStringLiteral("Bearer ") + m_accessToken;
+    if (!m_apiKey.isEmpty())
+        return QStringLiteral("Bearer ") + m_apiKey;
+    return {};
+}
+
+bool LlmClient::ensureAccessToken(const std::function<void(bool)> &done)
+{
+    // Токен обновляется заранее: получить 401 на реплике питомца значит
+    // промолчать там, где шаблон был бы уместнее.
+    const bool valid = !m_accessToken.isEmpty() && m_tokenExpiry.isValid()
+        && QDateTime::currentDateTimeUtc().secsTo(m_tokenExpiry) > 60;
+    if (valid) {
+        done(true);
+        return true;
+    }
+
+    if (m_adcPath.isEmpty()) {
+        qCWarning(logLlm, "путь к учётным данным Google не задан");
+        done(false);
+        return false;
+    }
+
+    QFile file(m_adcPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qCWarning(logLlm, "учётные данные Google не читаются");
+        done(false);
+        return false;
+    }
+
+    const QByteArray adc = file.readAll();
+    file.close();
+
+    const CoreBridge::TokenExchange exchange = m_core->buildTokenRequest(adc);
+    if (!exchange.ok) {
+        if (exchange.serviceAccountUnsupported)
+            qCWarning(logLlm, "учётные данные сервисного аккаунта не поддерживаются");
+        else
+            qCWarning(logLlm, "учётные данные Google не разобраны");
+        done(false);
+        return false;
+    }
+
+    QNetworkRequest request { QUrl(exchange.request.url) };
+    request.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QStringLiteral("application/x-www-form-urlencoded"));
+    request.setTransferTimeout(exchange.request.timeoutMs);
+    applyProxy(QUrl(exchange.request.url));
+
+    QNetworkReply *reply = m_network.post(request, exchange.request.body.toUtf8());
+    connect(reply, &QNetworkReply::finished, this, [this, reply, done] {
+        reply->deleteLater();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            // Тело ответа не логируется: в нём бывает описание ошибки
+            // вместе с фрагментами учётных данных.
+            qCWarning(logLlm) << "обмен токена не удался, код" << int(reply->error());
+            done(false);
+            return;
+        }
+
+        QString token;
+        const int lifetime = m_core->acceptTokenResponse(reply->readAll(), &token);
+        if (lifetime <= 0) {
+            qCWarning(logLlm, "ответ службы аутентификации не разобран");
+            done(false);
+            return;
+        }
+
+        m_accessToken = token;
+        m_tokenExpiry = QDateTime::currentDateTimeUtc().addSecs(lifetime);
+        qCInfo(logLlm, "токен доступа получен, годен %d с", lifetime);
+        done(true);
+    });
+
+    return true;
+}
+
 void LlmClient::checkHealth()
+{
+    if (needsToken()) {
+        ensureAccessToken([this](bool ok) {
+            if (ok)
+                sendHealthRequest();
+            else
+                emit healthChecked(false, false, tr("не удалось получить токен доступа"));
+        });
+        return;
+    }
+
+    sendHealthRequest();
+}
+
+void LlmClient::sendHealthRequest()
 {
     if (!isEnabled()) {
         emit healthChecked(false, false, tr("провайдер не выбран"));
@@ -156,8 +282,9 @@ void LlmClient::checkHealth()
                          QNetworkRequest::ManualRedirectPolicy);
     applyProxy(url);
 
-    if (!m_apiKey.isEmpty())
-        request.setRawHeader("Authorization", "Bearer " + m_apiKey.toUtf8());
+    const QString authorization = authorizationValue();
+    if (!authorization.isEmpty())
+        request.setRawHeader("Authorization", authorization.toUtf8());
 
     // Проверка связи — обычный GET: спрашивается список моделей, а не
     // генерация. Проверять связь генерацией значит платить за проверку

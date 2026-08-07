@@ -15,7 +15,7 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 
-pub const ABI_VERSION: u32 = 6;
+pub const ABI_VERSION: u32 = 7;
 const COOLDOWN_KEY_SIZE: usize = 32;
 const PHRASE_SIZE: usize = 192;
 
@@ -791,6 +791,88 @@ pub unsafe extern "C" fn openpet_core_active_pack(
             }
         }
     }));
+}
+
+/// # Safety
+/// `core`, `adc` и `out_request` должны быть валидными указателями.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_build_token_request(
+    core: *mut Core,
+    adc: *const c_char,
+    adc_len: usize,
+    out_request: *mut FfiLlmRequest,
+) -> c_int {
+    let (Some(_core), Some(slot)) = (core.as_ref(), out_request.as_mut()) else {
+        return -1;
+    };
+    if adc.is_null() {
+        return -1;
+    }
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let bytes = std::slice::from_raw_parts(adc as *const u8, adc_len);
+        llm::parse_adc(bytes).map(|credentials| llm::build_token_request(&credentials))
+    }));
+
+    match outcome {
+        Ok(Ok(plan)) => {
+            if plan.url.len() >= LLM_URL_SIZE || plan.body.len() >= LLM_BODY_SIZE {
+                return 0;
+            }
+            slot.url = [0; LLM_URL_SIZE];
+            slot.body = [0; LLM_BODY_SIZE];
+            fill_utf8(&mut slot.url, &plan.url);
+            fill_utf8(&mut slot.body, &plan.body);
+            slot.timeout_ms = plan.timeout_ms;
+            1
+        }
+        // Отдельный код: пользователю нужно понять, что чинить не файл,
+        // а способ входа.
+        Ok(Err(llm::AdcError::ServiceAccountUnsupported)) => -3,
+        Ok(Err(_)) => 0,
+        Err(_) => -2,
+    }
+}
+
+/// # Safety
+/// `core`, `raw`, `out_token` и `out_expires_seconds` должны быть валидными.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_accept_token_response(
+    core: *mut Core,
+    raw: *const c_char,
+    raw_len: usize,
+    out_token: *mut c_char,
+    token_size: usize,
+    out_expires_seconds: *mut u32,
+) -> c_int {
+    let Some(_core) = core.as_ref() else {
+        return -1;
+    };
+    if raw.is_null() || out_token.is_null() || token_size == 0 {
+        return -1;
+    }
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let bytes = std::slice::from_raw_parts(raw as *const u8, raw_len);
+        llm::parse_token_response(bytes)
+    }));
+
+    match outcome {
+        Ok(Some((token, expires))) => {
+            if token.len() >= token_size {
+                return 0;
+            }
+            let buffer = std::slice::from_raw_parts_mut(out_token, token_size);
+            buffer.fill(0);
+            fill_utf8(buffer, &token);
+            if let Some(slot) = out_expires_seconds.as_mut() {
+                *slot = expires;
+            }
+            1
+        }
+        Ok(None) => 0,
+        Err(_) => -2,
+    }
 }
 
 /// # Safety

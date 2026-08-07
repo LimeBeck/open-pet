@@ -172,6 +172,13 @@ int main(int argc, char *argv[])
     }
 
     LlmClient llm(&core);
+    llm.setProviderKind(llmKind);
+    // Путь к учётным данным Google: стандартный ADC, если пользователь
+    // не указал другой. Файл читается по надобности, а не при запуске.
+    llm.setVertexCredentialsPath(envOr(
+        "OPENPET_GOOGLE_ADC",
+        QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+            + QStringLiteral("/gcloud/application_default_credentials.json")));
     llm.setProxy(settings.proxyMode, settings.proxyHost, settings.proxyPort, settings.proxyUser,
                  SecretStore::read(QStringLiteral("proxy-password")), settings.proxyBypassLocal);
     // Ключ читается из KWallet; окружение перекрывает его для проверки (§FR-7).
@@ -493,6 +500,7 @@ int main(int argc, char *argv[])
         // со следующего запуска, как это уже случилось однажды.
         core.setLlmProvider(fresh.llmKind, fresh.llmBaseUrl, fresh.llmModel, fresh.llmProject,
                             fresh.llmRegion);
+        llm.setProviderKind(fresh.llmKind);
     });
 
     // Трей (§4.1): показать/скрыть, настройки, пауза реакций, выход.

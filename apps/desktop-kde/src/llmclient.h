@@ -4,7 +4,10 @@
 #include <QNetworkProxy>
 #include <QObject>
 #include <QPointer>
+#include <QDateTime>
 #include <QUrl>
+
+#include <functional>
 #include <QString>
 
 class QNetworkReply;
@@ -40,6 +43,13 @@ public:
     // ждать ответа сети синхронно — значит подвесить интерфейс.
     void checkHealth();
 
+    // Vertex AI не принимает статический ключ: нужен токен доступа,
+    // полученный обменом учётных данных Google ADC. Токен живёт около часа,
+    // поэтому обновляется по надобности, а не однажды при запуске.
+    void setVertexCredentialsPath(const QString &path);
+    // Вид провайдера нужен, чтобы знать, требуется ли токен: 3 — Vertex AI.
+    void setProviderKind(int kind) { m_providerKind = kind; }
+
 signals:
     // Годная реплика от модели.
     void phraseReady(const QString &phrase);
@@ -54,6 +64,14 @@ signals:
 
 private:
     void applyProxy(const QUrl &url);
+    // Возвращает false, если токена нет и получить его сейчас нельзя.
+    // Тогда запрос не отправляется вовсе, а питомец берёт шаблон (§FR-6).
+    bool ensureAccessToken(const std::function<void(bool)> &done);
+    // Требует ли провайдер токена, полученного обменом.
+    bool needsToken() const { return m_providerKind == 3; }
+    void sendPhraseRequest();
+    void sendHealthRequest();
+    QString authorizationValue() const;
     void finish(QNetworkReply *reply);
 
     CoreBridge *m_core = nullptr;
@@ -64,4 +82,9 @@ private:
     bool m_proxyBypassLocal = true;
     QPointer<QNetworkReply> m_inFlight;
     QPointer<QNetworkReply> m_healthInFlight;
+
+    int m_providerKind = 0;
+    QString m_adcPath;
+    QString m_accessToken;
+    QDateTime m_tokenExpiry;
 };

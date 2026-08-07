@@ -359,6 +359,46 @@ QString CoreBridge::activePackId() const
     return QString::fromUtf8(id.constData());
 }
 
+CoreBridge::TokenExchange CoreBridge::buildTokenRequest(const QByteArray &adc) const
+{
+    TokenExchange result;
+    if (!m_core)
+        return result;
+
+    OpenPetLlmRequest plan {};
+    const int verdict = openpet_core_build_token_request(m_core, adc.constData(),
+                                                         size_t(adc.size()), &plan);
+    if (verdict == -3) {
+        result.serviceAccountUnsupported = true;
+        return result;
+    }
+    if (verdict != 1)
+        return result;
+
+    result.request.url = QString::fromUtf8(plan.url);
+    result.request.body = QString::fromUtf8(plan.body);
+    result.request.timeoutMs = int(plan.timeout_ms);
+    result.ok = true;
+    return result;
+}
+
+int CoreBridge::acceptTokenResponse(const QByteArray &raw, QString *outToken) const
+{
+    if (!m_core || !outToken)
+        return 0;
+
+    QByteArray token(OPENPET_TOKEN_SIZE, '\0');
+    uint32_t expires = 0;
+    const int verdict = openpet_core_accept_token_response(m_core, raw.constData(),
+                                                           size_t(raw.size()), token.data(),
+                                                           size_t(token.size()), &expires);
+    if (verdict != 1)
+        return 0;
+
+    *outToken = QString::fromUtf8(token.constData());
+    return int(expires);
+}
+
 bool CoreBridge::buildHealthRequest(LlmRequest *out) const
 {
     if (!m_core || !out)

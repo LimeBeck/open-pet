@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define OPENPET_ABI_VERSION 6
+#define OPENPET_ABI_VERSION 7
 
 // Длина ключа cooldown с завершающим нулём.
 #define OPENPET_COOLDOWN_KEY_SIZE 32
@@ -222,6 +222,23 @@ uint8_t openpet_core_llm_enabled(const OpenPetCore *core);
 // Готовит запрос для последней сформированной реакции. Возвращает 1,
 // если запрос есть, 0 — если говорить не о чем или LLM выключена.
 int32_t openpet_core_build_llm_request(OpenPetCore *core, OpenPetLlmRequest *out_request);
+
+#define OPENPET_TOKEN_SIZE 2048
+
+// Строит запрос обмена учётных данных Google ADC на токен доступа.
+//
+// Учётные данные проходят через ядро, но не сохраняются в нём: см. раздел
+// «Уточнение» в ADR-008. Возвращает 1 при успехе, -3 если это учётные данные
+// сервисного аккаунта (нужен RS256, которого здесь нет), 0 в остальных
+// случаях негодного файла.
+int32_t openpet_core_build_token_request(OpenPetCore *core, const char *adc, uintptr_t adc_len,
+                                         OpenPetLlmRequest *out_request);
+
+// Разбирает ответ службы аутентификации. Возвращает 1 при успехе;
+// срок жизни токена в секундах кладётся в out_expires_seconds.
+int32_t openpet_core_accept_token_response(OpenPetCore *core, const char *raw, uintptr_t raw_len,
+                                           char *out_token, uintptr_t token_size,
+                                           uint32_t *out_expires_seconds);
 
 // Готовит запрос проверки связи (§FR-7, health_check). Тела у него нет —
 // это GET, и хост различает запросы по пустому body.
