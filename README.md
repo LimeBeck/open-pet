@@ -199,9 +199,9 @@ kwriteconfig6 --file kwinrc --group Plugins --key openpet-active-windowEnabled f
 | M6 | LLM gateway: Ollama, OpenAI-compatible, Vertex AI, secrets | — |
 | M7 | Hardening и alpha: настройки, diagnostics, perf, packaging | — |
 
-Все шесть ADR по источникам и архитектуре приняты. Открытым остаётся
-[ADR-005](docs/adr/0005-pet-pack-sprite-sheet.md) — формат Pet Pack,
-решать до M5.
+Все семь ADR приняты. Спецификация — v0.3: §7 переведён на `Private_Dirty`
+([ADR-006](docs/adr/0006-memory-metric.md)), §FR-8 — на спрайтовый лист
+([ADR-005](docs/adr/0005-pet-pack-sprite-sheet.md)).
 
 ## Лицензия
 

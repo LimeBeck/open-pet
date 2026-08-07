@@ -12,7 +12,7 @@
 | [0002](0002-overlay-input-region.md) | Управление input region интерактивного overlay | Accepted | M0 |
 | [0003](0003-kwin-integration.md) | Модель KWin integration и её установка | Accepted | M4 |
 | [0004](0004-notification-observation.md) | Граница наблюдения уведомлений в Plasma | Accepted | M4 |
-| [0005](0005-pet-pack-sprite-sheet.md) | Формат Pet Pack: спрайтовый лист против отдельных файлов | Proposed | M5 |
+| [0005](0005-pet-pack-sprite-sheet.md) | Формат Pet Pack: спрайтовый лист против отдельных файлов | Accepted | M5 |
 | [0006](0006-memory-metric.md) | Метрика памяти в §7: RSS или Private_Dirty | Accepted | M1 |
 
 ADR-001…004 заданы §16 спецификации как выход этапа M0. ADR-001 и ADR-002
