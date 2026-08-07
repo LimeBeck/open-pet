@@ -9,6 +9,5 @@
         "Name": "open-pet active window",
         "Name[ru]": "open-pet: активное окно",
         "Version": "0.1.0"
-    },
-    "X-Plasma-API": "declarativescript"
+    }
 }

@@ -162,9 +162,24 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 не трогает конфигурацию рабочего стола само:
 
 ```bash
-cp -r platform/kde-wayland/kwin-script ~/.local/share/kwin/scripts/openpet-active-window
+kpackagetool6 --type KWin/Script --install platform/kde-wayland/kwin-script
 kwriteconfig6 --file kwinrc --group Plugins --key openpet-active-windowEnabled true
-qdbus6 org.kde.KWin /KWin reconfigure
+```
+
+**Скрипт заработает только после следующего входа в сессию:** KWin сканирует
+пакеты при старте, и `reconfigure` новый пакет не подхватывает. Чтобы включить
+его в текущей сессии, не перезаходя:
+
+```bash
+busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting loadScript ss "$HOME/.local/share/kwin/scripts/openpet-active-window/contents/code/main.js" "openpet-active-window"
+busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting start
+```
+
+Удалить:
+
+```bash
+kpackagetool6 --type KWin/Script --remove openpet-active-window
+kwriteconfig6 --file kwinrc --group Plugins --key openpet-active-windowEnabled false
 ```
 
 Пока скрипт не установлен, источник сообщает `permission_required`, а остальные
