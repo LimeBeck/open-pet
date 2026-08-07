@@ -1,6 +1,8 @@
 #include "corebridge.h"
 #include "idleadapter.h"
+#include "mediaadapter.h"
 #include "mockeventsource.h"
+#include "notificationadapter.h"
 #include "overlaysurface.h"
 #include "petviewmodel.h"
 #include "poweradapter.h"
@@ -42,6 +44,19 @@ OpenPetPowerState toContract(PowerAdapter::Kind kind)
         break;
     }
     return OPENPET_POWER_UNKNOWN;
+}
+
+OpenPetMediaState toContract(MediaAdapter::State state)
+{
+    switch (state) {
+    case MediaAdapter::State::Playing:
+        return OPENPET_MEDIA_PLAYING;
+    case MediaAdapter::State::Paused:
+        return OPENPET_MEDIA_PAUSED;
+    case MediaAdapter::State::Stopped:
+        break;
+    }
+    return OPENPET_MEDIA_STOPPED;
 }
 
 OpenPetSessionState toContract(SessionAdapter::State state)
@@ -273,9 +288,27 @@ int main(int argc, char *argv[])
                          core.pushSessionChanged(toContract(state));
                      });
 
+    MediaAdapter mediaSource;
+    reportCapability(&mediaSource);
+    QObject::connect(&mediaSource, &MediaAdapter::mediaChanged,
+                     [&core](MediaAdapter::State state) {
+                         core.pushMediaChanged(toContract(state));
+                     });
+
+    NotificationAdapter notificationSource;
+    reportCapability(&notificationSource);
+    QObject::connect(&notificationSource, &NotificationAdapter::notificationOccurred,
+                     [&core] {
+                         // Категории нет: сигнал её не содержит, и выдумывать
+                         // её было бы враньём в модели событий.
+                         core.pushNotification(QString());
+                     });
+
     idleSource.start();
     powerSource.start();
     sessionSource.start();
+    mediaSource.start();
+    notificationSource.start();
 
     // Заглушка остаётся доступной для проверки состояний, которых не даёт
     // ни один настоящий источник: активное приложение, уведомления и медиа

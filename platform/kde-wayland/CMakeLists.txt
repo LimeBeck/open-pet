@@ -8,12 +8,16 @@ add_library(openpet-platform-kde STATIC
     src/idleadapter.cpp
     src/poweradapter.cpp
     src/sessionadapter.cpp
+    src/mediaadapter.cpp
+    src/notificationadapter.cpp
     include/overlaysurface.h
     include/inputregion.h
     include/eventsource.h
     include/idleadapter.h
     include/poweradapter.h
     include/sessionadapter.h
+    include/mediaadapter.h
+    include/notificationadapter.h
 )
 
 target_include_directories(openpet-platform-kde PUBLIC include)
