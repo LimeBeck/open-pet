@@ -12,11 +12,13 @@ pub mod behavior;
 pub mod emotion;
 pub mod event;
 pub mod ffi;
+pub mod llm;
 pub mod petpack;
 pub mod phrase;
 
 pub use behavior::{Reaction, StateMachine, Suppressed};
 pub use emotion::Emotion;
 pub use event::{CapabilityState, DesktopEvent, MediaState, PowerState, SessionState};
+pub use llm::{build_request, sanitize, LlmError, PhraseRequest, Provider};
 pub use petpack::{Manifest, Report as PetPackReport};
 pub use phrase::{Locale, Phrase, PhraseBook, PhraseIntent};
