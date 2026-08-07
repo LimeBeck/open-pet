@@ -95,6 +95,12 @@ Window {
                 onToggled: root.model.paused = checked
             }
 
+            CheckBox {
+                text: qsTr("Запускать при входе в систему")
+                checked: root.model.autostart
+                onToggled: root.model.autostart = checked
+            }
+
             RowLayout {
                 Layout.fillWidth: true
                 Label { text: qsTr("Засыпать после простоя, с") }

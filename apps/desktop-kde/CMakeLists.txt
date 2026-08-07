@@ -8,6 +8,8 @@ qt_add_executable(open-pet
     src/mockeventsource.h
     src/llmclient.cpp
     src/llmclient.h
+    src/autostart.cpp
+    src/autostart.h
     src/secretstore.cpp
     src/secretstore.h
     src/settingscontroller.cpp

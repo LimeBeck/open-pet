@@ -157,6 +157,7 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 | `OPENPET_MOCK_EVENTS` | гонять сценарий заглушки — состояния, которых пока не даёт ни один источник |
 | `OPENPET_SETTINGS` | открыть окно настроек сразу при запуске |
 | `OPENPET_LLM` | провайдер: `ollama`, `openai`, `vertex` (обычно настраивается в окне) |
+| `OPENPET_AUTOSTART` | `on` или `off` — включить автозапуск и выйти, для скриптов и упаковки |
 
 Питомца нельзя закрыть кликом — у окна нет ни рамки, ни клавиатуры. Выход через
 трей или `pkill -x open-pet`.

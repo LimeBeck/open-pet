@@ -1,5 +1,6 @@
 #include "settingscontroller.h"
 
+#include "autostart.h"
 #include "corebridge.h"
 #include "secretstore.h"
 
@@ -227,6 +228,24 @@ bool SettingsController::storeProxyPassword(const QString &password)
     const bool stored = SecretStore::store(kProxyPasswordAccount, password);
     emit changed();
     return stored;
+}
+
+bool SettingsController::autostart() const
+{
+    return Autostart::isEnabled();
+}
+
+void SettingsController::setAutostart(bool value)
+{
+    if (Autostart::isEnabled() == value)
+        return;
+
+    if (!Autostart::setEnabled(value)) {
+        m_restartNotice = value ? tr("Не удалось включить автозапуск: файл не записан")
+                                : tr("Не удалось выключить автозапуск: файл не удалён");
+    }
+
+    emit changed();
 }
 
 bool SettingsController::secretStorageAvailable() const

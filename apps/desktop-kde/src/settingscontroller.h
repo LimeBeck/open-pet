@@ -40,6 +40,7 @@ class SettingsController : public QObject
     Q_PROPERTY(int proxyPort READ proxyPort WRITE setProxyPort NOTIFY changed)
     Q_PROPERTY(QString proxyUser READ proxyUser WRITE setProxyUser NOTIFY changed)
     Q_PROPERTY(bool proxyBypassLocal READ proxyBypassLocal WRITE setProxyBypassLocal NOTIFY changed)
+    Q_PROPERTY(bool autostart READ autostart WRITE setAutostart NOTIFY changed)
     Q_PROPERTY(bool secretStorageAvailable READ secretStorageAvailable CONSTANT)
     Q_PROPERTY(bool hasApiKey READ hasApiKey NOTIFY changed)
 
@@ -98,6 +99,12 @@ public:
 
     // Пароль прокси уходит в KWallet тем же путём, что и ключ API.
     Q_INVOKABLE bool storeProxyPassword(const QString &password);
+
+    // Автозапуск не хранится в наших настройках: источник истины — наличие
+    // файла в каталоге автозапуска, который пользователь может убрать
+    // штатными средствами системы мимо нас.
+    bool autostart() const;
+    void setAutostart(bool value);
 
     bool secretStorageAvailable() const;
     bool hasApiKey() const { return m_hasApiKey; }

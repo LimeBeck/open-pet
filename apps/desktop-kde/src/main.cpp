@@ -1,4 +1,5 @@
 #include "activeappadapter.h"
+#include "autostart.h"
 #include "corebridge.h"
 #include "idleadapter.h"
 #include "llmclient.h"
@@ -107,6 +108,16 @@ int main(int argc, char *argv[])
     if (qEnvironmentVariableIsEmpty("QT_QUICK_CONTROLS_STYLE"))
         QQuickStyle::setStyle(QStringLiteral("org.kde.desktop"));
     qCInfo(logApp).noquote() << "стиль Quick Controls:" << QQuickStyle::name();
+
+    // Автозапуск управляется галочкой в настройках, но им же полезно
+    // управлять из скрипта — при упаковке и при проверке.
+    if (qEnvironmentVariableIsSet("OPENPET_AUTOSTART")) {
+        const bool wanted = qEnvironmentVariable("OPENPET_AUTOSTART") != QLatin1String("off");
+        const bool ok = Autostart::setEnabled(wanted);
+        qCInfo(logApp, "автозапуск %s: %s", wanted ? "включён" : "выключен",
+               ok ? "готово" : "НЕ УДАЛОСЬ");
+        return ok ? 0 : 1;
+    }
 
     const Settings settings = Settings::load();
 
