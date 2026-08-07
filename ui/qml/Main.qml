@@ -3,27 +3,40 @@ import QtQuick
 Window {
     id: root
 
-    // Окно чуть больше ячейки спрайта: запас нужен под будущий пузырь реплики
-    // (M2). Поля вокруг питомца остаются прозрачными и кликов не ловят —
-    // за это отвечает input region (ADR-002).
+    // Над питомцем оставлено место под пузырь с репликой. Поля вокруг
+    // остаются прозрачными и кликов не ловят — за это отвечает input region
+    // (ADR-002), который пересчитывается и при появлении пузыря.
+    readonly property int bubbleArea: 76
+
     width: Math.round(petView.implicitWidth * petModel.scale)
-    height: Math.round(petView.implicitHeight * petModel.scale)
+    height: Math.round((petView.implicitHeight + bubbleArea) * petModel.scale)
     visible: false
     color: "transparent"
     title: "open-pet"
 
     Item {
-        anchors.centerIn: parent
-        width: petView.implicitWidth
-        height: petView.implicitHeight
+        id: stage
+        anchors.fill: parent
         scale: petModel.scale
+        transformOrigin: Item.Center
 
         Pet {
             id: petView
-            emotion: petModel.emotionName
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: parent.bottom
             // Пауза останавливает реакции, но не замораживает питомца:
             // он остаётся живым, просто перестаёт отзываться (§FR-2).
+            emotion: petModel.emotionName
             animated: !petModel.reducedMotion
+        }
+
+        Bubble {
+            id: bubble
+            text: petModel.phrase
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.bottom: petView.top
+            // Хвостик заходит на макушку питомца, иначе пузырь висит в воздухе.
+            anchors.bottomMargin: -18
         }
     }
 
@@ -31,9 +44,16 @@ Window {
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton
 
-        // Левый клик — дружелюбная реакция с cooldown (§FR-2). Правый клик
-        // и перетаскивание появятся вместе с контекстным меню окна;
-        // пока меню живёт в трее.
-        onClicked: petModel.handleClick()
+        // Клик по пузырю закрывает реплику, клик по питомцу — просит новую
+        // (§FR-6, §FR-2). Правый клик и перетаскивание появятся вместе
+        // с контекстным меню окна; пока меню живёт в трее.
+        onClicked: (mouse) => {
+            const inBubble = bubble.shown
+                && mouse.y < stage.height - petView.implicitHeight * petModel.scale
+            if (inBubble)
+                petModel.dismissPhrase()
+            else
+                petModel.handleClick()
+        }
     }
 }

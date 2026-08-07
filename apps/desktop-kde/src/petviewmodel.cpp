@@ -17,6 +17,12 @@ const char *const kEmotionNames[] = {
 
 constexpr int kEmotionCount = int(std::size(kEmotionNames));
 
+// Сколько держать пузырь с репликой. Привязывать его к ttl состояния нельзя:
+// сон длится час, и реплика висела бы всё это время. Нижняя граница нужна,
+// чтобы короткие состояния успевали быть прочитанными (§FR-6).
+constexpr int kBubbleMinMs = 2500;
+constexpr int kBubbleMaxMs = 6000;
+
 } // namespace
 
 PetViewModel::PetViewModel(CoreBridge *core, QObject *parent)
@@ -28,11 +34,21 @@ PetViewModel::PetViewModel(CoreBridge *core, QObject *parent)
 
     m_emotion = m_core->currentEmotion();
 
-    connect(m_core, &CoreBridge::reactionReceived, this,
-            [this](const CoreBridge::Reaction &reaction) { applyEmotion(reaction.animation); });
+    m_phraseTimer.setSingleShot(true);
+    connect(&m_phraseTimer, &QTimer::timeout, this, &PetViewModel::dismissPhrase);
 
-    connect(m_core, &CoreBridge::settled, this,
-            [this](int emotion) { applyEmotion(emotion); });
+    connect(m_core, &CoreBridge::reactionReceived, this,
+            [this](const CoreBridge::Reaction &reaction) {
+                applyEmotion(reaction.animation);
+                showPhrase(reaction.phrase, reaction.ttlMs);
+            });
+
+    connect(m_core, &CoreBridge::settled, this, [this](int emotion) {
+        applyEmotion(emotion);
+        // Возврат в покой убирает и реплику: питомец успокоился, говорить
+        // больше не о чем.
+        dismissPhrase();
+    });
 }
 
 QString PetViewModel::emotionName() const
@@ -83,6 +99,31 @@ void PetViewModel::setReducedMotion(bool reduced)
 
     m_reducedMotion = reduced;
     emit reducedMotionChanged();
+}
+
+void PetViewModel::showPhrase(const QString &text, int ttlMs)
+{
+    if (text.isEmpty()) {
+        // Молчаливая реакция не должна гасить реплику, которая ещё читается:
+        // пусть висит свой срок.
+        return;
+    }
+
+    m_phrase = text;
+    emit phraseChanged();
+
+    m_phraseTimer.start(qBound(kBubbleMinMs, ttlMs, kBubbleMaxMs));
+}
+
+void PetViewModel::dismissPhrase()
+{
+    m_phraseTimer.stop();
+
+    if (m_phrase.isEmpty())
+        return;
+
+    m_phrase.clear();
+    emit phraseChanged();
 }
 
 void PetViewModel::handleClick()

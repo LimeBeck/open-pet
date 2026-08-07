@@ -7,13 +7,15 @@
 use crate::behavior::{Reaction, StateMachine, Suppressed};
 use crate::emotion::Emotion;
 use crate::event::{DesktopEvent, MediaState, PowerState, SessionState};
+use crate::phrase::{Locale, PhraseBook};
 
 use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 const COOLDOWN_KEY_SIZE: usize = 32;
+const PHRASE_SIZE: usize = 192;
 
 const EVENT_ACTIVITY_RESUMED: u32 = 0;
 const EVENT_IDLE_THRESHOLD_REACHED: u32 = 1;
@@ -50,6 +52,8 @@ pub struct FfiReaction {
     priority: u8,
     ttl_ms: u32,
     cooldown_key: [c_char; COOLDOWN_KEY_SIZE],
+    has_phrase: u8,
+    phrase: [c_char; PHRASE_SIZE],
 }
 
 pub type ReactionCallback = extern "C" fn(*const FfiReaction, *mut c_void);
@@ -71,6 +75,7 @@ unsafe impl Sync for Callbacks {}
 
 pub struct Core {
     machine: Mutex<StateMachine>,
+    phrases: Mutex<PhraseBook>,
     callbacks: Mutex<Callbacks>,
 }
 
@@ -78,6 +83,7 @@ impl Core {
     fn new() -> Self {
         Self {
             machine: Mutex::new(StateMachine::new()),
+            phrases: Mutex::new(PhraseBook::default()),
             callbacks: Mutex::new(Callbacks {
                 reaction: None,
                 log: None,
@@ -116,7 +122,21 @@ const fn emotion_code(emotion: Emotion) -> u32 {
     }
 }
 
-fn to_ffi(reaction: &Reaction) -> FfiReaction {
+/// Копирует UTF-8 в фиксированный буфер, обрезая **по границе символа**.
+/// Обрыв посередине многобайтового символа дал бы невалидную строку
+/// на стороне C, а реплики на русском — сплошь многобайтовые.
+fn fill_utf8(buffer: &mut [c_char], text: &str) {
+    let limit = buffer.len() - 1;
+    let mut end = text.len().min(limit);
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    for (slot, byte) in buffer.iter_mut().zip(&text.as_bytes()[..end]) {
+        *slot = *byte as c_char;
+    }
+}
+
+fn to_ffi(reaction: &Reaction, phrase: Option<&str>) -> FfiReaction {
     let mut cooldown_key = [0 as c_char; COOLDOWN_KEY_SIZE];
     if let Some(key) = &reaction.cooldown_key {
         // Обрезаем молча: ключ формирует само ядро, это не пользовательские
@@ -130,12 +150,19 @@ fn to_ffi(reaction: &Reaction) -> FfiReaction {
         }
     }
 
+    let mut phrase_buffer = [0 as c_char; PHRASE_SIZE];
+    if let Some(text) = phrase {
+        fill_utf8(&mut phrase_buffer, text);
+    }
+
     FfiReaction {
         emotion: emotion_code(reaction.emotion),
         animation: emotion_code(reaction.animation),
         priority: reaction.priority,
         ttl_ms: reaction.ttl_ms,
         cooldown_key,
+        has_phrase: u8::from(phrase.is_some()),
+        phrase: phrase_buffer,
     }
 }
 
@@ -299,8 +326,17 @@ pub unsafe extern "C" fn openpet_core_push_event(
 
     match outcome {
         Ok(Ok(reaction)) => {
+            // Текст подбирается здесь, а не в rule engine: правило знает
+            // намерение, каталог — формулировку (§FR-6).
+            let phrase = reaction.phrase_intent.and_then(|intent| {
+                core.phrases
+                    .lock()
+                    .ok()
+                    .and_then(|mut book| book.pick(intent))
+            });
+
             if let Some(slot) = out_reaction.as_mut() {
-                *slot = to_ffi(&reaction);
+                *slot = to_ffi(&reaction, phrase.as_ref().map(|p| p.text));
             }
             1
         }
@@ -389,6 +425,52 @@ pub unsafe extern "C" fn openpet_core_set_low_battery_threshold(core: *mut Core,
     }));
 }
 
+/// # Safety
+/// `core` должен быть валидным указателем, `tag` — строкой длиной `tag_len`,
+/// живой на время вызова.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_set_locale(
+    core: *mut Core,
+    tag: *const c_char,
+    tag_len: usize,
+) {
+    let Some(core) = core.as_ref() else { return };
+
+    let locale = read_string(tag, tag_len)
+        .map(|tag| Locale::parse(&tag))
+        .unwrap_or(Locale::En);
+
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Ok(mut book) = core.phrases.lock() {
+            book.set_locale(locale);
+        }
+    }));
+}
+
+/// # Safety
+/// `core` должен быть валидным указателем на ядро.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_set_phrase_history_limit(core: *mut Core, limit: u32) {
+    let Some(core) = core.as_ref() else { return };
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Ok(mut book) = core.phrases.lock() {
+            book.set_history_limit(limit as usize);
+        }
+    }));
+}
+
+/// # Safety
+/// `core` должен быть валидным указателем на ядро.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_clear_phrase_history(core: *mut Core) {
+    let Some(core) = core.as_ref() else { return };
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Ok(mut book) = core.phrases.lock() {
+            book.clear_history();
+        }
+    }));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -416,13 +498,17 @@ mod tests {
         assert!(!core.is_null());
 
         let event = empty_event(EVENT_PET_CLICKED);
-        let mut reaction = to_ffi(&Reaction {
-            emotion: Emotion::Idle,
-            animation: Emotion::Idle,
-            priority: 0,
-            ttl_ms: 0,
-            cooldown_key: None,
-        });
+        let mut reaction = to_ffi(
+            &Reaction {
+                emotion: Emotion::Idle,
+                animation: Emotion::Idle,
+                phrase_intent: None,
+                priority: 0,
+                ttl_ms: 0,
+                cooldown_key: None,
+            },
+            None,
+        );
 
         unsafe {
             assert_eq!(openpet_core_push_event(core, &event, &mut reaction), 1);
@@ -478,6 +564,91 @@ mod tests {
             );
             openpet_core_free(core);
         }
+    }
+
+    fn phrase_of(reaction: &FfiReaction) -> String {
+        let bytes: Vec<u8> = reaction
+            .phrase
+            .iter()
+            .take_while(|c| **c != 0)
+            .map(|c| *c as u8)
+            .collect();
+        String::from_utf8(bytes).expect("реплика обязана остаться валидным UTF-8")
+    }
+
+    #[test]
+    fn phrase_crosses_the_boundary_in_russian() {
+        let core = openpet_core_new();
+        let tag = "ru_RU.UTF-8";
+        let event = empty_event(EVENT_PET_CLICKED);
+        let mut reaction = to_ffi(
+            &Reaction {
+                emotion: Emotion::Idle,
+                animation: Emotion::Idle,
+                phrase_intent: None,
+                priority: 0,
+                ttl_ms: 0,
+                cooldown_key: None,
+            },
+            None,
+        );
+
+        unsafe {
+            openpet_core_set_locale(core, tag.as_ptr() as *const c_char, tag.len());
+            assert_eq!(openpet_core_push_event(core, &event, &mut reaction), 1);
+            assert_eq!(reaction.has_phrase, 1);
+
+            let text = phrase_of(&reaction);
+            assert!(!text.is_empty());
+            assert!(
+                text.chars().any(|c| ('а'..='я').contains(&c)),
+                "на русской локали ожидался русский текст, получено: {text}"
+            );
+
+            openpet_core_free(core);
+        }
+    }
+
+    #[test]
+    fn silent_reaction_carries_no_phrase() {
+        let core = openpet_core_new();
+        // Блокировка сессии меняет позу, но говорить некому.
+        let mut event = empty_event(EVENT_SESSION_CHANGED);
+        event.session_state = 1;
+
+        let mut reaction = to_ffi(
+            &Reaction {
+                emotion: Emotion::Idle,
+                animation: Emotion::Idle,
+                phrase_intent: None,
+                priority: 0,
+                ttl_ms: 0,
+                cooldown_key: None,
+            },
+            None,
+        );
+
+        unsafe {
+            assert_eq!(openpet_core_push_event(core, &event, &mut reaction), 1);
+            assert_eq!(reaction.has_phrase, 0);
+            assert!(phrase_of(&reaction).is_empty());
+            openpet_core_free(core);
+        }
+    }
+
+    #[test]
+    fn truncation_keeps_utf8_valid() {
+        // Буфер на 8 байт: русская фраза заведомо не влезает и обрежется
+        // посреди символа, если не следить за границами.
+        let mut buffer = [0 as c_char; 8];
+        fill_utf8(&mut buffer, "Заряжаемся!");
+        let bytes: Vec<u8> = buffer
+            .iter()
+            .take_while(|c| **c != 0)
+            .map(|c| *c as u8)
+            .collect();
+        let text = String::from_utf8(bytes).expect("обрезка не должна ломать UTF-8");
+        assert!("Заряжаемся!".starts_with(&text));
     }
 
     #[test]

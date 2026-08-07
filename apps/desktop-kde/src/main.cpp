@@ -8,6 +8,7 @@
 #include <QApplication>
 #include <QElapsedTimer>
 #include <QIcon>
+#include <QLocale>
 #include <QLoggingCategory>
 #include <QMenu>
 #include <QQmlApplicationEngine>
@@ -54,6 +55,9 @@ int main(int argc, char *argv[])
     }
 
     core.setPaused(settings.paused);
+    // Язык реплик берётся из системной локали. Неизвестные теги ядро
+    // приводит к английскому — fallback обязан быть определён всегда (§7).
+    core.setLocale(QLocale::system().name());
 
     QObject::connect(&core, &CoreBridge::diagnostic, [](int level, const QString &message) {
         // Диагностика ядра обезличена по построению: сообщения формирует
@@ -100,10 +104,21 @@ int main(int argc, char *argv[])
                      &overlay, &OverlaySurface::scheduleRegionUpdate);
     QObject::connect(&viewModel, &PetViewModel::scaleChanged,
                      &overlay, &OverlaySurface::scheduleRegionUpdate);
+    // Пузырь меняет видимую область, значит и область попаданий: без этого
+    // клик по реплике уходил бы на рабочий стол (ADR-002).
+    QObject::connect(&viewModel, &PetViewModel::phraseChanged,
+                     &overlay, &OverlaySurface::scheduleRegionUpdate);
     overlay.scheduleRegionUpdate();
 
     QObject::connect(&overlay, &OverlaySurface::regionUpdated, [](int rects, qreal ms) {
         qCDebug(logApp, "input region обновлён: %d прямоуг. за %.2f мс", rects, ms);
+    });
+
+    QObject::connect(&viewModel, &PetViewModel::phraseChanged, [&viewModel] {
+        // Текст реплики — не пользовательское содержимое: он выбран ядром
+        // из встроенного каталога (§9).
+        if (!viewModel.phrase().isEmpty())
+            qCDebug(logApp).noquote() << "реплика:" << viewModel.phrase();
     });
 
     QObject::connect(&viewModel, &PetViewModel::emotionChanged, [&viewModel] {

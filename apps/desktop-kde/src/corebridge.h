@@ -21,6 +21,9 @@ public:
         int priority = 0;
         int ttlMs = 0;
         QString cooldownKey;
+        // Пустая строка означает «питомец молчит»: не каждая смена позы
+        // заслуживает слов (§FR-6).
+        QString phrase;
     };
 
     explicit CoreBridge(QObject *parent = nullptr);
@@ -47,6 +50,10 @@ public:
 
     int currentEmotion() const;
     void setLowBatteryThreshold(int percent);
+
+    // Локаль реплик. Неизвестные теги ядро приводит к английскому (§7).
+    void setLocale(const QString &tag);
+    void clearPhraseHistory();
 
     // Возврат в покой по истечении ttl. Вызывается по таймеру хоста.
     void settle();

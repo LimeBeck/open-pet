@@ -7,8 +7,8 @@ Desktop AI Pet — постоянно доступный анимированн�
 эмоцию и анимацию, показывает короткие реплики. Работает полностью локально;
 LLM — опциональное дополнение, включаемое явно.
 
-> **Статус:** M1, walking skeleton. Приложение собирается, устанавливается
-> и показывает питомца на layer-shell overlay; источники событий — заглушка.
+> **Статус:** M2. Питомец живёт на layer-shell overlay, меняет состояния
+> и говорит шаблонными репликами на ru/en; источники событий — заглушка до M3.
 
 ## Источник истины
 
@@ -64,7 +64,7 @@ Qt/KDE Desktop Host (apps/desktop-kde)
           ↓ нормализованные DTO
 Rust Core (core)
   ├─ state machine, приоритеты, cooldown
-  ├─ phrase/template engine   (M2)
+  ├─ каталог реплик, история, локали ru/en
   ├─ LLM gateway              (M6)
   └─ Pet Pack validation      (M5)
 ```
@@ -140,8 +140,8 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 | Этап | Содержание | Статус |
 |---|---|---|
 | M0 | Technical spikes: LayerShellQt, input region, Rust↔C++ bridge | закрыт |
-| M1 | Walking skeleton: репозиторий, CI, host, tray, встроенный питомец | **текущий** |
-| M2 | Behavior core: шаблонные реплики, история, локализация | — |
+| M1 | Walking skeleton: репозиторий, CI, host, tray, встроенный питомец | закрыт |
+| M2 | Behavior core: шаблонные реплики, история, локализация | **текущий** |
 | M3 | KDE base integration: idle, UPower, sleep/resume, session | — |
 | M4 | Context integrations: KWin active-app, MPRIS, уведомления | — |
 | M5 | Pet Pack v1: schema, validator, импорт, локализации | — |

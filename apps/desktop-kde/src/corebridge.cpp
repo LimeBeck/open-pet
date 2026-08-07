@@ -25,6 +25,8 @@ CoreBridge::Reaction fromFfi(const OpenPetReaction &raw)
     reaction.priority = int(raw.priority);
     reaction.ttlMs = int(raw.ttl_ms);
     reaction.cooldownKey = QString::fromUtf8(raw.cooldown_key);
+    if (raw.has_phrase)
+        reaction.phrase = QString::fromUtf8(raw.phrase);
     return reaction;
 }
 
@@ -202,6 +204,21 @@ void CoreBridge::setLowBatteryThreshold(int percent)
 {
     if (m_core && percent >= 0 && percent <= 100)
         openpet_core_set_low_battery_threshold(m_core, uint8_t(percent));
+}
+
+void CoreBridge::setLocale(const QString &tag)
+{
+    if (!m_core)
+        return;
+
+    const QByteArray utf8 = tag.toUtf8();
+    openpet_core_set_locale(m_core, utf8.constData(), size_t(utf8.size()));
+}
+
+void CoreBridge::clearPhraseHistory()
+{
+    if (m_core)
+        openpet_core_clear_phrase_history(m_core);
 }
 
 void CoreBridge::settle()

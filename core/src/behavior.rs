@@ -6,6 +6,7 @@
 
 use crate::emotion::Emotion;
 use crate::event::{DesktopEvent, MediaState, PowerState, SessionState};
+use crate::phrase::PhraseIntent;
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -21,16 +22,26 @@ pub struct Reaction {
     /// В MVP анимация совпадает с эмоцией: сопоставление состояния и файла —
     /// задача Pet Pack (§FR-8), а не rule engine.
     pub animation: Emotion,
+    /// Что питомец хочет сказать. Именно намерение, а не текст: выбор
+    /// формулировки — дело каталога реплик или LLM (§FR-6, §US-06).
+    /// `None` означает «промолчать»: не каждая смена позы заслуживает слов.
+    pub phrase_intent: Option<PhraseIntent>,
     pub priority: u8,
     pub ttl_ms: u32,
     pub cooldown_key: Option<String>,
 }
 
 impl Reaction {
-    fn new(emotion: Emotion, ttl_ms: u32, cooldown_key: Option<&str>) -> Self {
+    fn new(
+        emotion: Emotion,
+        intent: Option<PhraseIntent>,
+        ttl_ms: u32,
+        cooldown_key: Option<&str>,
+    ) -> Self {
         Self {
             emotion,
             animation: emotion,
+            phrase_intent: intent,
             priority: emotion.priority(),
             ttl_ms,
             cooldown_key: cooldown_key.map(str::to_string),
@@ -166,13 +177,21 @@ impl StateMachine {
 
     fn candidate_for(&self, event: &DesktopEvent) -> Option<Reaction> {
         let reaction = match event {
-            DesktopEvent::ActivityResumed => {
-                Reaction::new(Emotion::Happy, 4_000, Some("activity_resumed"))
-            }
+            DesktopEvent::ActivityResumed => Reaction::new(
+                Emotion::Happy,
+                Some(PhraseIntent::WelcomeBack),
+                4_000,
+                Some("activity_resumed"),
+            ),
 
             DesktopEvent::IdleThresholdReached { .. } => {
                 // Сон не имеет cooldown: это устойчивое состояние, а не всплеск.
-                Reaction::new(Emotion::Sleepy, 3_600_000, None)
+                Reaction::new(
+                    Emotion::Sleepy,
+                    Some(PhraseIntent::GettingSleepy),
+                    3_600_000,
+                    None,
+                )
             }
 
             DesktopEvent::PowerChanged {
@@ -183,9 +202,19 @@ impl StateMachine {
                 let low = percent.is_some_and(|value| value <= self.low_battery_threshold);
 
                 if *on_battery && low {
-                    Reaction::new(Emotion::LowBattery, 8_000, Some("low_battery"))
+                    Reaction::new(
+                        Emotion::LowBattery,
+                        Some(PhraseIntent::LowBattery),
+                        8_000,
+                        Some("low_battery"),
+                    )
                 } else if !*on_battery && matches!(state, PowerState::Charging | PowerState::Full) {
-                    Reaction::new(Emotion::Charging, 5_000, Some("charging"))
+                    Reaction::new(
+                        Emotion::Charging,
+                        Some(PhraseIntent::Charging),
+                        5_000,
+                        Some("charging"),
+                    )
                 } else {
                     // Разряд без пересечения порога — не событие для питомца.
                     // Повторные обновления одного состояния не создают
@@ -197,12 +226,17 @@ impl StateMachine {
             DesktopEvent::SessionChanged { state } => match state {
                 // Во сне и при блокировке питомца никто не видит: анимация
                 // должна замирать, а не тратить кадры (§14).
+                // Во сне и при блокировке говорить некому: реплика без
+                // зрителя — это только строка в истории показов.
                 SessionState::Sleeping | SessionState::Locked => {
-                    Reaction::new(Emotion::Sleepy, 3_600_000, None)
+                    Reaction::new(Emotion::Sleepy, None, 3_600_000, None)
                 }
-                SessionState::Resumed => {
-                    Reaction::new(Emotion::Happy, 4_000, Some("session_resumed"))
-                }
+                SessionState::Resumed => Reaction::new(
+                    Emotion::Happy,
+                    Some(PhraseIntent::WelcomeBack),
+                    4_000,
+                    Some("session_resumed"),
+                ),
                 SessionState::Active => return None,
             },
 
@@ -215,18 +249,36 @@ impl StateMachine {
                 }
 
                 if self.media == MediaState::Playing {
-                    Reaction::new(Emotion::Busy, 3_000, Some("active_app"))
+                    Reaction::new(
+                        Emotion::Busy,
+                        Some(PhraseIntent::NoticedContext),
+                        3_000,
+                        Some("active_app"),
+                    )
                 } else {
-                    Reaction::new(Emotion::Curious, 3_000, Some("active_app"))
+                    Reaction::new(
+                        Emotion::Curious,
+                        Some(PhraseIntent::NoticedContext),
+                        3_000,
+                        Some("active_app"),
+                    )
                 }
             }
 
-            DesktopEvent::NotificationOccurred { .. } => {
-                Reaction::new(Emotion::Notification, 3_500, Some("notification"))
-            }
+            DesktopEvent::NotificationOccurred { .. } => Reaction::new(
+                Emotion::Notification,
+                Some(PhraseIntent::NoticedNotification),
+                3_500,
+                Some("notification"),
+            ),
 
             DesktopEvent::MediaChanged { state } => match state {
-                MediaState::Playing => Reaction::new(Emotion::Busy, 6_000, Some("media")),
+                MediaState::Playing => Reaction::new(
+                    Emotion::Busy,
+                    Some(PhraseIntent::MediaStarted),
+                    6_000,
+                    Some("media"),
+                ),
                 // Остановка и пауза сами по себе реакции не заслуживают:
                 // иначе питомец дёргается на каждый трек.
                 MediaState::Paused | MediaState::Stopped => return None,
@@ -235,7 +287,12 @@ impl StateMachine {
             DesktopEvent::PetClicked => {
                 // Клик — единственное намеренное обращение пользователя,
                 // поэтому cooldown короче общего (§FR-2).
-                Reaction::new(Emotion::Happy, 2_500, Some("pet_clicked"))
+                Reaction::new(
+                    Emotion::Happy,
+                    Some(PhraseIntent::Petted),
+                    2_500,
+                    Some("pet_clicked"),
+                )
             }
         };
 

@@ -22,10 +22,15 @@
 extern "C" {
 #endif
 
-#define OPENPET_ABI_VERSION 1
+#define OPENPET_ABI_VERSION 2
 
 // Длина ключа cooldown с завершающим нулём.
 #define OPENPET_COOLDOWN_KEY_SIZE 32
+
+// Длина реплики с завершающим нулём. Фиксированный буфер вместо указателя
+// снимает вопрос владения строкой на границе (ADR-001, правило 3).
+// Короткая реплика — продуктовое требование §FR-6, а не экономия байт.
+#define OPENPET_PHRASE_SIZE 192
 
 // Нормализованная модель событий (§FR-4).
 typedef enum {
@@ -108,6 +113,12 @@ typedef struct {
     uint8_t priority;
     uint32_t ttl_ms;
     char cooldown_key[OPENPET_COOLDOWN_KEY_SIZE];
+
+    // Текст реплики в UTF-8 на текущей локали, уже выбранный ядром
+    // с учётом истории показов (§FR-6). Пустой, если питомец молчит:
+    // не каждая смена позы заслуживает слов.
+    uint8_t has_phrase;
+    char phrase[OPENPET_PHRASE_SIZE];
 } OpenPetReaction;
 
 typedef struct OpenPetCore OpenPetCore;
@@ -147,6 +158,16 @@ int32_t openpet_core_settle(OpenPetCore *core, uint32_t *out_emotion);
 
 // Порог низкого заряда в процентах.
 void openpet_core_set_low_battery_threshold(OpenPetCore *core, uint8_t percent);
+
+// Локаль реплик: тег вида "ru", "ru_RU.UTF-8", "en-GB". Всё неизвестное
+// приводится к английскому — fallback обязан быть определён всегда (§7).
+void openpet_core_set_locale(OpenPetCore *core, const char *tag, uintptr_t tag_len);
+
+// Размер окна истории показанных реплик (§FR-6).
+void openpet_core_set_phrase_history_limit(OpenPetCore *core, uint32_t limit);
+
+// Забыть историю показанных реплик — часть «сбросить локальные данные» (§9).
+void openpet_core_clear_phrase_history(OpenPetCore *core);
 
 #ifdef __cplusplus
 }
