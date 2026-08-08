@@ -2,6 +2,7 @@
 
 #include <QNetworkAccessManager>
 #include <QNetworkProxy>
+#include <QNetworkRequest>
 #include <QObject>
 #include <QPointer>
 #include <QDateTime>
@@ -72,6 +73,7 @@ private:
     void sendPhraseRequest();
     void sendHealthRequest();
     QString authorizationValue() const;
+    void applyAuthorization(QNetworkRequest &request) const;
     void finish(QNetworkReply *reply);
 
     CoreBridge *m_core = nullptr;

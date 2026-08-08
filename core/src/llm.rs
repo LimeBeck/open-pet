@@ -38,7 +38,19 @@ pub enum Provider {
         region: String,
         model: String,
     },
+    /// Google AI Studio — тот же Gemini, но с обычным ключом вместо OAuth.
+    ///
+    /// Формат запроса и ответа совпадает с Vertex, поэтому отличается
+    /// только адрес и способ аутентификации. Для пользователя разница
+    /// огромна: ключ вместо `gcloud auth application-default login`.
+    GoogleAiStudio {
+        model: String,
+    },
 }
+
+/// Адрес Google AI Studio. Постоянный: у этого провайдера нет своего хоста
+/// у каждого пользователя, в отличие от Ollama и OpenAI-совместимых.
+const AI_STUDIO_BASE: &str = "https://generativelanguage.googleapis.com/v1beta";
 
 /// Учётные данные Google ADC, пригодные для обмена на токен доступа.
 ///
@@ -179,6 +191,7 @@ pub fn build_health_request(provider: &Provider) -> RequestPlan {
         } => format!(
             "https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/publishers/google/models"
         ),
+        Provider::GoogleAiStudio { .. } => format!("{AI_STUDIO_BASE}/models"),
     };
 
     RequestPlan {
@@ -228,6 +241,21 @@ pub fn parse_health_response(provider: &Provider, raw: &[u8]) -> Result<Vec<Stri
             })
             .ok_or(LlmError::Malformed)?,
 
+        // AI Studio отдаёт имена с приставкой «models/», а пользователь
+        // пишет модель без неё. Приставка снимается здесь, чтобы сравнение
+        // не пришлось учить исключениям.
+        Provider::GoogleAiStudio { .. } => value
+            .get("models")
+            .and_then(|m| m.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.get("name").and_then(|n| n.as_str()))
+                    .map(|name| name.trim_start_matches("models/").to_string())
+                    .collect()
+            })
+            .ok_or(LlmError::Malformed)?,
+
         Provider::VertexAi { .. } => value
             .get("publisherModels")
             .and_then(|m| m.as_array())
@@ -253,7 +281,8 @@ pub fn model_is_present(provider: &Provider, models: &[String]) -> bool {
     let wanted = match provider {
         Provider::Ollama { model, .. }
         | Provider::OpenAiCompatible { model, .. }
-        | Provider::VertexAi { model, .. } => model,
+        | Provider::VertexAi { model, .. }
+        | Provider::GoogleAiStudio { model } => model,
     };
 
     if wanted.is_empty() || models.is_empty() {
@@ -384,6 +413,20 @@ pub fn build_request(provider: &Provider, request: &PhraseRequest) -> RequestPla
                 system, user
             ),
         ),
+
+        // Ключ в URL не идёт намеренно: адреса попадают в журналы прокси
+        // и в историю ошибок. Хост передаёт его заголовком.
+        Provider::GoogleAiStudio { model } => (
+            format!(
+                "{}/models/{}:generateContent",
+                AI_STUDIO_BASE,
+                escape_json(model)
+            ),
+            format!(
+                r#"{{"systemInstruction":{{"parts":[{{"text":"{}"}}]}},"contents":[{{"role":"user","parts":[{{"text":"{}"}}]}}],"generationConfig":{{"maxOutputTokens":60}}}}"#,
+                system, user
+            ),
+        ),
     };
 
     RequestPlan {
@@ -421,7 +464,7 @@ pub fn parse_response(provider: &Provider, raw: &[u8]) -> Result<String, LlmErro
             .and_then(|m| m.get("content"))
             .and_then(|c| c.as_str()),
 
-        Provider::VertexAi { .. } => value
+        Provider::VertexAi { .. } | Provider::GoogleAiStudio { .. } => value
             .get("candidates")
             .and_then(|c| c.get(0))
             .and_then(|c| c.get("content"))
@@ -727,6 +770,59 @@ mod tests {
         ] {
             assert_eq!(parse_token_response(raw), None);
         }
+    }
+
+    fn ai_studio() -> Provider {
+        Provider::GoogleAiStudio {
+            model: "gemini-2.0-flash".to_string(),
+        }
+    }
+
+    #[test]
+    fn ai_studio_never_puts_the_key_in_the_url() {
+        // Адреса попадают в журналы прокси и в отчёты об ошибках.
+        // Ключ передаётся заголовком, поэтому в URL его быть не должно
+        // ни при каких обстоятельствах.
+        let request = PhraseRequest {
+            intent: PhraseIntent::Petted,
+            emotion: Emotion::Happy,
+            locale: Locale::Ru,
+        };
+        let plan = build_request(&ai_studio(), &request);
+        assert!(!plan.url.contains("key="), "{}", plan.url);
+        assert!(
+            plan.url
+                .starts_with("https://generativelanguage.googleapis.com/"),
+            "{}",
+            plan.url
+        );
+
+        let health = build_health_request(&ai_studio());
+        assert!(!health.url.contains("key="), "{}", health.url);
+    }
+
+    #[test]
+    fn ai_studio_shares_the_gemini_response_shape() {
+        let response = r#"{"candidates":[{"content":{"parts":[{"text":"Ещё разок!"}]}}]}"#;
+        assert_eq!(
+            parse_response(&ai_studio(), response.as_bytes()),
+            Ok("Ещё разок!".to_string())
+        );
+    }
+
+    #[test]
+    fn ai_studio_model_names_lose_their_prefix() {
+        // Провайдер отдаёт «models/gemini-2.0-flash», пользователь пишет
+        // «gemini-2.0-flash». Без снятия приставки проверка связи сообщала бы
+        // «модели нет» о существующей модели.
+        let raw =
+            br#"{"models":[{"name":"models/gemini-2.0-flash"},{"name":"models/gemini-1.5-pro"}]}"#;
+        let models = parse_health_response(&ai_studio(), raw).expect("список разобран");
+        assert!(
+            models.contains(&"gemini-2.0-flash".to_string()),
+            "{models:?}"
+        );
+        assert!(model_is_present(&ai_studio(), &models));
     }
 
     #[test]

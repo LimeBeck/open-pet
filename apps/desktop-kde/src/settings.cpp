@@ -73,7 +73,7 @@ Settings Settings::load()
     settings.marginRight = qBound(0, settings.marginRight, 4000);
     settings.marginBottom = qBound(0, settings.marginBottom, 4000);
     settings.idleSeconds = qBound(5, settings.idleSeconds, 3600);
-    settings.llmKind = qBound(0, settings.llmKind, 3);
+    settings.llmKind = qBound(0, settings.llmKind, 4);
     settings.llmTimeoutMs = qBound(500, settings.llmTimeoutMs, 60000);
     settings.proxyMode = qBound(0, settings.proxyMode, 2);
     settings.proxyPort = qBound(0, settings.proxyPort, 65535);

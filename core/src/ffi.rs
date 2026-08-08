@@ -610,6 +610,7 @@ fn provider_from_config(config: &FfiLlmConfig) -> Option<Provider> {
             region,
             model,
         }),
+        4 => Some(Provider::GoogleAiStudio { model }),
         _ => None,
     }
 }

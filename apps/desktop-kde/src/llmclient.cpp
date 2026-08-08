@@ -138,9 +138,7 @@ void LlmClient::sendPhraseRequest()
     request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
                          QNetworkRequest::ManualRedirectPolicy);
 
-    const QString authorization = authorizationValue();
-    if (!authorization.isEmpty())
-        request.setRawHeader("Authorization", authorization.toUtf8());
+    applyAuthorization(request);
 
     QNetworkReply *reply = m_network.post(request, plan.body.toUtf8());
     m_inFlight = reply;
@@ -167,6 +165,22 @@ QString LlmClient::authorizationValue() const
     if (!m_apiKey.isEmpty())
         return QStringLiteral("Bearer ") + m_apiKey;
     return {};
+}
+
+void LlmClient::applyAuthorization(QNetworkRequest &request) const
+{
+    // У Google AI Studio свой заголовок: Authorization он игнорирует.
+    // Ключ идёт заголовком, а не параметром адреса, потому что адреса
+    // попадают в журналы прокси и в отчёты об ошибках.
+    if (m_providerKind == 4) {
+        if (!m_apiKey.isEmpty())
+            request.setRawHeader("x-goog-api-key", m_apiKey.toUtf8());
+        return;
+    }
+
+    const QString value = authorizationValue();
+    if (!value.isEmpty())
+        request.setRawHeader("Authorization", value.toUtf8());
 }
 
 bool LlmClient::ensureAccessToken(const std::function<void(bool)> &done)
@@ -282,9 +296,7 @@ void LlmClient::sendHealthRequest()
                          QNetworkRequest::ManualRedirectPolicy);
     applyProxy(url);
 
-    const QString authorization = authorizationValue();
-    if (!authorization.isEmpty())
-        request.setRawHeader("Authorization", authorization.toUtf8());
+    applyAuthorization(request);
 
     // Проверка связи — обычный GET: спрашивается список моделей, а не
     // генерация. Проверять связь генерацией значит платить за проверку
@@ -298,9 +310,29 @@ void LlmClient::sendHealthRequest()
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            qCWarning(logLlm) << "проверка связи не удалась, код" << int(reply->error());
-            emit healthChecked(false, false,
-                               tr("нет ответа (код %1)").arg(int(reply->error())));
+            // «Нет ответа» и «ответили отказом» — разные беды, и чинят их
+            // в разных местах. Отказ по ключу выглядел бы как отсутствие
+            // сети, и пользователь пошёл бы проверять провода.
+            const QVariant status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+            QString detail;
+
+            if (status.isValid()) {
+                const int code = status.toInt();
+                if (code == 401 || code == 403)
+                    detail = tr("провайдер отверг ключ (HTTP %1)").arg(code);
+                else if (code == 404)
+                    detail = tr("адрес не найден — проверьте модель (HTTP 404)");
+                else if (code == 429)
+                    detail = tr("превышен предел запросов (HTTP 429)");
+                else
+                    detail = tr("провайдер ответил ошибкой (HTTP %1)").arg(code);
+            } else {
+                detail = tr("нет ответа: сеть, адрес или таймаут (код %1)")
+                             .arg(int(reply->error()));
+            }
+
+            qCWarning(logLlm).noquote() << "проверка связи:" << detail;
+            emit healthChecked(false, false, detail);
             return;
         }
 

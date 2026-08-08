@@ -59,8 +59,8 @@ LLM — опциональное дополнение, включаемое яв
 - Восемь состояний: `idle`, `happy`, `curious`, `sleepy`, `charging`, `low_battery`,
   `notification`, `busy`.
 - Локальный rule engine с приоритетами, cooldown и защитой от спама.
-- Шаблонные реплики `ru`/`en`; LLM (Ollama, OpenAI-compatible, Vertex AI) — опционально,
-  с обязательным fallback на шаблон.
+- Шаблонные реплики `ru`/`en`; LLM (Ollama, OpenAI-совместимый, Vertex AI,
+  Google AI Studio) — опционально, с обязательным fallback на шаблон.
 - Импорт и валидация Pet Pack v1 — данные, без исполняемого кода.
 
 Границы MVP — §4 спецификации. Всё, что не входит, перечислено явно в §4.3.
@@ -156,7 +156,7 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 | `OPENPET_IDLE_SECONDS` | порог простоя в секундах: ждать пять минут ради одного события неразумно |
 | `OPENPET_MOCK_EVENTS` | гонять сценарий заглушки — состояния, которых пока не даёт ни один источник |
 | `OPENPET_SETTINGS` | открыть окно настроек сразу при запуске |
-| `OPENPET_LLM` | провайдер: `ollama`, `openai`, `vertex` (обычно настраивается в окне) |
+| `OPENPET_LLM` | провайдер: `ollama`, `openai`, `vertex`, `aistudio` (обычно настраивается в окне) |
 | `OPENPET_AUTOSTART` | `on` или `off` — включить автозапуск и выйти, для скриптов и упаковки |
 | `OPENPET_HEALTHCHECK` | проверить связь с провайдером и выйти; код возврата 0 — модель найдена |
 | `OPENPET_IMPORT_PACK` | установить Pet Pack из архива по пути и выйти |
@@ -230,6 +230,15 @@ kwriteconfig6 --file kwinrc --group Plugins --key openpet-active-windowEnabled f
 Все семь ADR приняты. Спецификация — v0.3: §7 переведён на `Private_Dirty`
 ([ADR-006](docs/adr/0006-memory-metric.md)), §FR-8 — на спрайтовый лист
 ([ADR-005](docs/adr/0005-pet-pack-sprite-sheet.md)).
+
+### Google AI Studio
+
+Самый простой способ получить Gemini: обычный ключ, без OAuth, проекта
+и региона. Ключ создаётся на `aistudio.google.com`, вводится в окне настроек
+и хранится в KWallet.
+
+Ключ уходит заголовком `x-goog-api-key`, а не параметром адреса: адреса
+попадают в журналы прокси и в отчёты об ошибках.
 
 ### Vertex AI
 

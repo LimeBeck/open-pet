@@ -167,7 +167,7 @@ OPENPET_SOURCE_SETTER(SourceActiveApp, sourceActiveApp)
 
 void SettingsController::setLlmKind(int value)
 {
-    value = qBound(0, value, 3);
+    value = qBound(0, value, 4);
     if (m_settings.llmKind == value)
         return;
     m_settings.llmKind = value;

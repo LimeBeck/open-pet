@@ -141,6 +141,9 @@ typedef enum {
     OPENPET_LLM_OLLAMA = 1,
     OPENPET_LLM_OPENAI_COMPATIBLE = 2,
     OPENPET_LLM_VERTEX_AI = 3,
+    // Тот же Gemini, что и Vertex, но с обычным ключом вместо OAuth.
+    // Формат запроса и ответа совпадает; различаются адрес и заголовок.
+    OPENPET_LLM_GOOGLE_AI_STUDIO = 4,
 } OpenPetLlmKind;
 
 typedef struct {

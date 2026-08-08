@@ -181,16 +181,21 @@ Window {
                 ComboBox {
                     id: providerBox
                     Layout.fillWidth: true
-                    model: [qsTr("Выключено"), "Ollama", qsTr("OpenAI-совместимый"), "Vertex AI"]
+                    model: [qsTr("Выключено"), "Ollama", qsTr("OpenAI-совместимый"),
+                            "Vertex AI", "Google AI Studio"]
                     currentIndex: root.model.llmKind
                     onActivated: root.model.llmKind = currentIndex
                 }
 
                 // Vertex адреса не имеет: URL строится из проекта и региона.
-                Label { text: qsTr("Адрес"); visible: root.model.llmKind > 0 && root.model.llmKind !== 3 }
+                // У Vertex и AI Studio адреса нет: он определяется провайдером.
+                Label {
+                    text: qsTr("Адрес")
+                    visible: root.model.llmKind === 1 || root.model.llmKind === 2
+                }
                 TextField {
                     Layout.fillWidth: true
-                    visible: root.model.llmKind > 0 && root.model.llmKind !== 3
+                    visible: root.model.llmKind === 1 || root.model.llmKind === 2
                     placeholderText: "http://127.0.0.1:11434"
                     text: root.model.llmBaseUrl
                     onEditingFinished: root.model.llmBaseUrl = text
@@ -230,10 +235,13 @@ Window {
                     onValueModified: root.model.llmTimeoutMs = value
                 }
 
-                Label { text: qsTr("Ключ API"); visible: root.model.llmKind === 2 }
+                Label {
+                    text: qsTr("Ключ API")
+                    visible: root.model.llmKind === 2 || root.model.llmKind === 4
+                }
                 RowLayout {
                     Layout.fillWidth: true
-                    visible: root.model.llmKind === 2
+                    visible: root.model.llmKind === 2 || root.model.llmKind === 4
 
                     TextField {
                         id: keyField
@@ -253,6 +261,15 @@ Window {
                         }
                     }
                 }
+            }
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                opacity: 0.75
+                visible: root.model.llmKind === 4
+                text: qsTr("Ключ создаётся на aistudio.google.com. Это тот же Gemini, "
+                           + "что и в Vertex, но без OAuth: проект и регион не нужны.")
             }
 
             // Vertex не принимает ключ, поэтому поля для ключа у него нет,
@@ -296,7 +313,8 @@ Window {
             Label {
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
-                visible: root.model.llmKind === 2 && !root.model.secretStorageAvailable
+                visible: (root.model.llmKind === 2 || root.model.llmKind === 4)
+                         && !root.model.secretStorageAvailable
                 color: "#c0392b"
                 text: qsTr("KWallet недоступен, поэтому ключ сохранить некуда. "
                            + "Записывать его в обычный файл настроек приложение не будет.")

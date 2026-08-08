@@ -154,6 +154,7 @@ int main(int argc, char *argv[])
         : llmEnv == QLatin1String("ollama")                  ? 1
         : llmEnv == QLatin1String("openai")                  ? 2
         : llmEnv == QLatin1String("vertex")                  ? 3
+        : llmEnv == QLatin1String("aistudio")                ? 4
                                                              : 0;
 
     const auto envOr = [](const char *name, const QString &fallback) {
