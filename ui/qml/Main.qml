@@ -74,6 +74,13 @@ Window {
             // но спрайтовая анимация сохраняет своё прежнее поведение.
             motionEnabled: !petModel.reducedMotion
             pixelRatio: Screen.devicePixelRatio
+
+            // Маска едет следом за визуалом. Смещение переводится
+            // в координаты окна: внутри сцены оно в единицах до масштаба.
+            onOffsetXChanged: petModel.setMotionOffset(
+                Math.round(offsetX * petModel.scale), Math.round(offsetY * petModel.scale))
+            onOffsetYChanged: petModel.setMotionOffset(
+                Math.round(offsetX * petModel.scale), Math.round(offsetY * petModel.scale))
         }
 
         Pet {

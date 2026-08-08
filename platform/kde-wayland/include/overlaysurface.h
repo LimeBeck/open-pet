@@ -58,6 +58,14 @@ public:
 
     bool isDragging() const { return m_dragging; }
 
+    // Сдвиг маски вслед за процедурным движением (ADR-009).
+    //
+    // Регион не пересчитывается, а переносится: пересчёт по альфа-каналу
+    // стоит 10.8 мс и 19–22% ядра (ADR-002), перенос готового — 0.013–0.041 мс
+    // и 0.1–0.4%. Без переноса клики попадали бы в старый силуэт: питомец
+    // виден в одном месте, а ввод принимает в другом.
+    void setMotionOffset(const QPoint &offset);
+
     // Сдвигает питомца на dx, dy пикселей (§FR-2).
     //
     // У layer-shell поверхности нет координат: положение задаётся якорем
@@ -109,7 +117,9 @@ private:
     QMargins m_margins;
     QTimer m_regionTimer;
     bool m_layerShellAvailable = false;
+    // Регион в покое, то есть при нулевом смещении движения.
     QRegion m_region;
+    QPoint m_motionOffset;
     int m_regionRectCount = 0;
     qreal m_lastBuildMs = 0;
 };

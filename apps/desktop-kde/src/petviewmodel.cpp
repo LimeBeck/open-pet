@@ -237,6 +237,12 @@ void PetViewModel::dismissPhrase()
     emit phraseChanged();
 }
 
+void PetViewModel::setMotionOffset(int x, int y)
+{
+    if (m_overlay)
+        m_overlay->setMotionOffset(QPoint(x, y));
+}
+
 void PetViewModel::handleDragStart()
 {
     if (m_core)

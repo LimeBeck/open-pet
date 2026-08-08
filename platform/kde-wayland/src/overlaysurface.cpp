@@ -212,6 +212,21 @@ QScreen *OverlaySurface::screen() const
     return m_window ? m_window->screen() : nullptr;
 }
 
+void OverlaySurface::setMotionOffset(const QPoint &offset)
+{
+    if (!m_window || m_motionOffset == offset)
+        return;
+
+    m_motionOffset = offset;
+
+    // Пока регион не посчитан, переносить нечего: первый снимок случится
+    // при следующем обновлении и уже учтёт смещение.
+    if (m_region.isEmpty())
+        return;
+
+    m_window->setMask(m_region.translated(m_motionOffset));
+}
+
 QPoint OverlaySurface::moveBy(int dx, int dy)
 {
     if (!m_window || !m_layerShellAvailable)
@@ -336,8 +351,10 @@ void OverlaySurface::rebuildRegion()
         return;
     }
 
+    // Снимок сделан при текущем смещении движения, поэтому в покое регион
+    // приводится к нулевому смещению — иначе следующий перенос удвоил бы его.
+    m_region = region.translated(-m_motionOffset);
     m_window->setMask(region);
-    m_region = region;
 
     // Замер для ADR-009: чего стоит перенести уже посчитанный регион
     // и отдать его композитору. Это единственное неизмеренное место
