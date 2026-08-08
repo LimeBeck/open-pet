@@ -18,6 +18,15 @@ set(CORE_LIB ${CORE_TARGET_DIR}/${CORE_PROFILE_DIR}/libopenpet_core.a)
 
 file(GLOB_RECURSE CORE_SOURCES CONFIGURE_DEPENDS ${CORE_DIR}/src/*.rs)
 
+# Встроенный питомец вшит в ядро через include_str!/include_bytes!, поэтому
+# его правка обязана пересобирать ядро. Без этой зависимости манифест менялся,
+# а библиотека оставалась прежней: питомец в окне был новый, а раскладка
+# и резерв под движение — от старого пакета. Поймано на живой проверке.
+set(BUILTIN_PET
+    ${CMAKE_SOURCE_DIR}/assets/builtin-pet/manifest.json
+    ${CMAKE_SOURCE_DIR}/assets/builtin-pet/lime.png
+)
+
 find_program(CARGO_EXECUTABLE cargo REQUIRED)
 
 add_custom_command(
@@ -25,7 +34,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E env CARGO_TARGET_DIR=${CORE_TARGET_DIR}
             ${CARGO_EXECUTABLE} build --profile ${CORE_PROFILE}
             --manifest-path ${CORE_DIR}/Cargo.toml
-    DEPENDS ${CORE_SOURCES} ${CORE_DIR}/Cargo.toml
+    DEPENDS ${CORE_SOURCES} ${CORE_DIR}/Cargo.toml ${BUILTIN_PET}
     COMMENT "Сборка Rust-ядра (${CORE_PROFILE})"
     VERBATIM
 )
