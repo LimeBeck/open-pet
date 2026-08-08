@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QRegion>
 #include <QPoint>
+#include <QRegion>
 #include <QSize>
 
 class QScreen;
@@ -108,6 +109,7 @@ private:
     QMargins m_margins;
     QTimer m_regionTimer;
     bool m_layerShellAvailable = false;
+    QRegion m_region;
     int m_regionRectCount = 0;
     qreal m_lastBuildMs = 0;
 };

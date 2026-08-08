@@ -337,6 +337,32 @@ void OverlaySurface::rebuildRegion()
     }
 
     m_window->setMask(region);
+    m_region = region;
+
+    // Замер для ADR-009: чего стоит перенести уже посчитанный регион
+    // и отдать его композитору. Это единственное неизмеренное место
+    // в предложении о процедурном движении — покадровый пересчёт альфы
+    // отвергнут ещё в ADR-002 (10.8 мс, 19–22% CPU), а перенос готового
+    // региона может оказаться и дешёвым, и нет.
+    if (qEnvironmentVariableIsSet("OPENPET_MASK_BENCH")) {
+        constexpr int kRuns = 200;
+        QElapsedTimer bench;
+        bench.start();
+        for (int i = 0; i < kRuns; ++i) {
+            const QRegion moved = region.translated(0, (i % 2) ? -12 : 12);
+            m_window->setMask(moved);
+        }
+        const qreal perCall = bench.nsecsElapsed() / 1e6 / kRuns;
+
+        qCInfo(logOverlay).noquote()
+            << QStringLiteral("перенос региона: %1 прямоуг., %2 мс на вызов, "
+                              "при 90 Гц это %3% ядра")
+                   .arg(region.rectCount())
+                   .arg(perCall, 0, 'f', 3)
+                   .arg(perCall * 90 / 10, 0, 'f', 1);
+
+        m_window->setMask(region);
+    }
     m_regionRectCount = int(region.rectCount());
     m_lastBuildMs = timer.nsecsElapsed() / 1e6;
 

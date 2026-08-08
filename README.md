@@ -152,6 +152,7 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 | Переменная | Действие |
 |---|---|
 | `OPENPET_NO_REGION` | не задавать input region: окно ловит ввод целиком |
+| `OPENPET_MASK_BENCH` | замерить стоимость переноса маски — для ADR-009 |
 | `OPENPET_NO_TRAY` | не показывать значок в трее |
 | `OPENPET_IDLE_SECONDS` | порог простоя в секундах: ждать пять минут ради одного события неразумно |
 | `OPENPET_MOCK_EVENTS` | гонять сценарий заглушки — состояния, которых пока не даёт ни один источник |
