@@ -3,7 +3,9 @@
 #include "corebridge.h"
 
 #include <QObject>
+#include <QMargins>
 #include <QPoint>
+#include <QVariantList>
 #include <QString>
 #include <QUrl>
 #include <QTimer>
@@ -30,6 +32,17 @@ class PetViewModel : public QObject
     Q_PROPERTY(int animationFrames READ animationFrames NOTIFY emotionChanged)
     Q_PROPERTY(int animationFrameDuration READ animationFrameDuration NOTIFY emotionChanged)
     Q_PROPERTY(QUrl sheetSource READ sheetSource NOTIFY sheetSourceChanged)
+
+    // Процедурное движение (ADR-009). Список точек отдаётся в QML как есть:
+    // ядро их уже проверило, интерполяция — дело хоста.
+    Q_PROPERTY(QVariantList motionKeyframes READ motionKeyframes NOTIFY emotionChanged)
+    Q_PROPERTY(int motionDurationMs READ motionDurationMs NOTIFY emotionChanged)
+    Q_PROPERTY(bool motionLoops READ motionLoops NOTIFY emotionChanged)
+    // Резерв поверхности под траекторию, в логических пикселях.
+    Q_PROPERTY(int motionLeft READ motionLeft CONSTANT)
+    Q_PROPERTY(int motionTop READ motionTop CONSTANT)
+    Q_PROPERTY(int motionRight READ motionRight CONSTANT)
+    Q_PROPERTY(int motionBottom READ motionBottom CONSTANT)
     Q_PROPERTY(int cellWidth READ cellWidth NOTIFY emotionChanged)
     Q_PROPERTY(int cellHeight READ cellHeight NOTIFY emotionChanged)
     Q_PROPERTY(bool paused READ paused NOTIFY pausedChanged)
@@ -49,6 +62,14 @@ public:
     int animationFrames() const { return m_animation.frames; }
     int animationFrameDuration() const { return m_animation.frameDurationMs; }
     QUrl sheetSource() const { return m_sheetSource; }
+
+    QVariantList motionKeyframes() const;
+    int motionDurationMs() const { return m_motion.durationMs; }
+    bool motionLoops() const { return m_motion.loops; }
+    int motionLeft() const { return m_envelope.left(); }
+    int motionTop() const { return m_envelope.top(); }
+    int motionRight() const { return m_envelope.right(); }
+    int motionBottom() const { return m_envelope.bottom(); }
     void setSheetSource(const QUrl &source);
 
     int cellWidth() const { return m_animation.cellWidth; }
@@ -120,6 +141,8 @@ private:
     // Необязательная зависимость: без неё питомец говорит только шаблонами.
     LlmClient *m_llm = nullptr;
     OverlaySurface *m_overlay = nullptr;
+    CoreBridge::Motion m_motion;
+    QMargins m_envelope;
 
     // Шаблон, ждущий, пока ответит модель. Если она не ответит или ответит
     // негодно, покажется именно он (§FR-6).

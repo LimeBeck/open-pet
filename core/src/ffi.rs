@@ -15,7 +15,7 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 
-pub const ABI_VERSION: u32 = 9;
+pub const ABI_VERSION: u32 = 10;
 const COOLDOWN_KEY_SIZE: usize = 32;
 const PHRASE_SIZE: usize = 192;
 
@@ -85,6 +85,35 @@ pub struct FfiAnimation {
     frame_duration_ms: u32,
     cell_width: u32,
     cell_height: u32,
+}
+
+const MAX_KEYFRAMES: usize = 32;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct FfiKeyframe {
+    at: f32,
+    x: f32,
+    y: f32,
+    easing: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FfiMotion {
+    keyframe_count: u32,
+    duration_ms: u32,
+    loops: u8,
+    keyframes: [FfiKeyframe; MAX_KEYFRAMES],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct FfiMotionEnvelope {
+    left: u32,
+    top: u32,
+    right: u32,
+    bottom: u32,
 }
 
 const LLM_URL_SIZE: usize = 512;
@@ -821,6 +850,78 @@ pub unsafe extern "C" fn openpet_core_active_pack(
                 fill_utf8(buffer, file);
             }
         }
+    }));
+}
+
+/// # Safety
+/// `core` и `out_envelope` должны быть валидными указателями.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_motion_envelope(
+    core: *mut Core,
+    out_envelope: *mut FfiMotionEnvelope,
+) {
+    let (Some(core), Some(slot)) = (core.as_ref(), out_envelope.as_mut()) else {
+        return;
+    };
+
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let Ok(packs) = core.packs.lock() else { return };
+        let (left, top, right, bottom) = packs.active().motion_envelope();
+        *slot = FfiMotionEnvelope {
+            left,
+            top,
+            right,
+            bottom,
+        };
+    }));
+}
+
+/// # Safety
+/// `core`, `state` и `out_motion` должны быть валидными указателями.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_motion(
+    core: *mut Core,
+    state: *const c_char,
+    state_len: usize,
+    out_motion: *mut FfiMotion,
+) {
+    let (Some(core), Some(slot)) = (core.as_ref(), out_motion.as_mut()) else {
+        return;
+    };
+
+    // Отсутствие движения — это ноль точек, а не ошибка: слой остаётся
+    // тождественным, и пакеты без motion ведут себя как прежде.
+    slot.keyframe_count = 0;
+    slot.duration_ms = 0;
+    slot.loops = 0;
+
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        let Some(name) = read_string(state, state_len) else {
+            return;
+        };
+        let Ok(packs) = core.packs.lock() else { return };
+        let Some(motion) = packs.active().motion(&name) else {
+            return;
+        };
+
+        slot.duration_ms = motion.duration_ms;
+        slot.loops = u8::from(motion.loop_);
+
+        for (index, frame) in motion.keyframes.iter().take(MAX_KEYFRAMES).enumerate() {
+            slot.keyframes[index] = FfiKeyframe {
+                at: frame.at as f32,
+                x: frame.x as f32,
+                y: frame.y as f32,
+                easing: match frame.easing {
+                    crate::petpack::Easing::Linear => 0,
+                    crate::petpack::Easing::InQuad => 1,
+                    crate::petpack::Easing::OutQuad => 2,
+                    crate::petpack::Easing::InOutQuad => 3,
+                },
+            };
+        }
+
+        slot.keyframe_count = motion.keyframes.len().min(MAX_KEYFRAMES) as u32;
     }));
 }
 

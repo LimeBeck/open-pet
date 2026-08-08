@@ -2,6 +2,7 @@
 
 #include "openpet_core.h"
 
+#include <QMargins>
 #include <QObject>
 #include <QString>
 
@@ -68,6 +69,25 @@ public:
         bool operator==(const Animation &other) const = default;
     };
     Animation animationFor(const QString &state) const;
+
+    struct Keyframe {
+        qreal at = 0;
+        qreal x = 0;
+        qreal y = 0;
+        int easing = 0;
+    };
+
+    // Процедурное движение (ADR-009). Пустой список означает, что движения
+    // у состояния нет — слой остаётся тождественным.
+    struct Motion {
+        int durationMs = 0;
+        bool loops = false;
+        QList<Keyframe> keyframes;
+    };
+    Motion motionFor(const QString &state) const;
+
+    // Резерв под траекторию для всего пакета, в логических пикселях.
+    QMargins motionEnvelope() const;
 
     // LLM (§FR-7). Ключ сюда не передаётся: он живёт только в хосте,
     // а ядро формирует тело запроса без него (ADR-008).

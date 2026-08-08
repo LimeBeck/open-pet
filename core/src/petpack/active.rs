@@ -6,7 +6,7 @@
 //! придётся вживлять в QML.
 
 use super::archive::{extract, ArchiveLimits};
-use super::manifest::Manifest;
+use super::manifest::{Manifest, Motion};
 use super::validate::{validate, Finding, Limits, Severity};
 
 /// Манифест встроенного питомца вшивается в ядро.
@@ -94,6 +94,54 @@ impl ActivePack {
 
     pub fn take_sheet(&mut self) -> Option<Vec<u8>> {
         self.pending_sheet.take()
+    }
+
+    /// Движение состояния, если оно описано.
+    ///
+    /// Подмена отсутствующего состояния на `fallbackAnimation` работает
+    /// так же, как для кадров: питомец не должен замирать из-за того,
+    /// что в пакете нет одного состояния.
+    pub fn motion(&self, state: &str) -> Option<&Motion> {
+        self.manifest
+            .animations
+            .get(state)
+            .or_else(|| {
+                self.manifest
+                    .animations
+                    .get(&self.manifest.fallback_animation)
+            })
+            .and_then(|animation| animation.motion.as_ref())
+    }
+
+    /// Резерв под траекторию: крайние смещения по всем анимациям пакета.
+    ///
+    /// Считается один раз при загрузке, а не на каждое движение. Поверхность
+    /// получает этот запас и дальше не меняет размер — растягивать её
+    /// на каждый прыжок дорого, а прыжки случаются часто (ADR-009).
+    ///
+    /// Возвращает `(влево, вверх, вправо, вниз)` в логических пикселях,
+    /// все значения неотрицательны.
+    pub fn motion_envelope(&self) -> (u32, u32, u32, u32) {
+        let mut left = 0.0_f64;
+        let mut up = 0.0_f64;
+        let mut right = 0.0_f64;
+        let mut down = 0.0_f64;
+
+        for animation in self.manifest.animations.values() {
+            let Some(motion) = &animation.motion else {
+                continue;
+            };
+            for frame in &motion.keyframes {
+                // Смещение влево — это отрицательный x, и запас нужен слева.
+                left = left.max(-frame.x);
+                right = right.max(frame.x);
+                up = up.max(-frame.y);
+                down = down.max(frame.y);
+            }
+        }
+
+        let round = |v: f64| v.ceil().max(0.0) as u32;
+        (round(left), round(up), round(right), round(down))
     }
 
     pub fn sheet_size(&self) -> (u32, u32) {
@@ -252,6 +300,48 @@ impl PackStore {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn envelope_covers_the_extreme_offsets() {
+        // Резерв считается по всем анимациям пакета сразу: поверхность
+        // получает его один раз и не меняет размер на каждое движение.
+        let raw = br#"{
+            "schemaVersion": 1, "renderer": "sprite-sheet",
+            "id": "a", "name": "A", "version": "1.0.0", "sheet": "s.png",
+            "grid": { "columns": 2, "rows": 2, "cellWidth": 64, "cellHeight": 64 },
+            "animations": {
+                "idle": { "row": 0, "frames": 2, "frameDurationMs": 200,
+                    "motion": { "durationMs": 500, "keyframes": [
+                        { "at": 0.0, "x": 0, "y": 0 },
+                        { "at": 1.0, "x": -8.5, "y": -30 }
+                    ] } },
+                "happy": { "row": 1, "frames": 2, "frameDurationMs": 200,
+                    "motion": { "durationMs": 500, "keyframes": [
+                        { "at": 0.0, "x": 0, "y": 0 },
+                        { "at": 1.0, "x": 12, "y": 4 }
+                    ] } }
+            },
+            "fallbackAnimation": "idle", "locales": ["ru"]
+        }"#;
+        let manifest = Manifest::parse(raw).expect("разбирается");
+        let pack = ActivePack {
+            manifest,
+            source: SheetSource::Builtin,
+            sheet_width: 128,
+            sheet_height: 128,
+            pending_sheet: None,
+        };
+
+        // Округление вверх: 8.5 px влево требуют 9 px запаса, иначе
+        // питомец обрежется на крайнем кадре.
+        assert_eq!(pack.motion_envelope(), (9, 30, 12, 4));
+    }
+
+    #[test]
+    fn pack_without_motion_needs_no_reserve() {
+        let store = PackStore::new();
+        assert_eq!(store.active().motion_envelope(), (0, 0, 0, 0));
+    }
+
     use super::*;
 
     #[test]

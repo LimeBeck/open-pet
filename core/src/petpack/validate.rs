@@ -342,6 +342,18 @@ fn check_motion(manifest: &Manifest, limits: &Limits, report: &mut Report) {
             ));
         }
 
+        // Зацикленное движение в состоянии покоя работает всегда, а не
+        // изредка. Замерено: непрерывное движение стоит 6.8% ядра против
+        // 0.3% у неподвижного питомца — втрое больше цели §7. Пакет от этого
+        // не становится негодным, но пользователь вправе знать, за что
+        // платит батареей.
+        if motion.loop_ && state == "idle" {
+            report.warning(format!(
+                "«{state}»: зацикленное движение в покое работает постоянно — \
+                 измеренная цена около 6.8% ядра против 0.3% у неподвижного питомца"
+            ));
+        }
+
         // Зацикленное движение, у которого конец не совпадает с началом,
         // даёт рывок на каждом повторе.
         if motion.loop_ && (first.x != last.x || first.y != last.y) {
@@ -551,6 +563,21 @@ mod tests {
             errors.iter().any(|e| e.contains("две ключевые")),
             "{errors:?}"
         );
+    }
+
+    #[test]
+    fn looping_motion_in_idle_warns_about_the_cost() {
+        // Не отказ: автор вправе так сделать. Но 6.8% ядра против 0.3%
+        // у неподвижного питомца — это то, о чём пользователь должен узнать
+        // до установки, а не по разряженной батарее.
+        let manifest = with_motion(
+            r#"{ "durationMs": 1200, "loop": true, "keyframes": [
+                { "at": 0.0, "y": 0 }, { "at": 1.0, "y": 0 }
+            ] }"#,
+        );
+        let report = validate(&manifest, 128, 64, &Limits::default());
+        assert!(report.is_acceptable());
+        assert!(report.warnings().any(|w| w.message.contains("постоянно")));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 
 Window {
     id: root
@@ -10,8 +11,14 @@ Window {
 
     // Размер окна в покое. Во время перетаскивания окно растянуто на экран,
     // и эти числа остаются мерой самой рамки питомца.
-    readonly property int restWidth: Math.round(petView.implicitWidth * petModel.scale)
-    readonly property int restHeight: Math.round((petView.implicitHeight + bubbleArea) * petModel.scale)
+    // Резерв под траекторию. Считается один раз по всему пакету: растягивать
+    // поверхность на каждое движение дорого, а движение случается часто
+    // (ADR-009, вариант D отвергнут именно поэтому).
+    readonly property int restWidth: Math.round(
+        (petView.implicitWidth + petModel.motionLeft + petModel.motionRight) * petModel.scale)
+    readonly property int restHeight: Math.round(
+        (petView.implicitHeight + bubbleArea + petModel.motionTop + petModel.motionBottom)
+        * petModel.scale)
 
     width: restWidth
     height: restHeight
@@ -57,8 +64,27 @@ Window {
         scale: petModel.scale
         transformOrigin: Item.Center
 
+        // Слой движения: смещает уже выбранный визуал, не трогая позу.
+        Motion {
+            id: motion
+            keyframes: petModel.motionKeyframes
+            durationMs: petModel.motionDurationMs
+            loops: petModel.motionLoops
+            // reduced motion выключает процедурное движение целиком (§7),
+            // но спрайтовая анимация сохраняет своё прежнее поведение.
+            motionEnabled: !petModel.reducedMotion
+            pixelRatio: Screen.devicePixelRatio
+        }
+
         Pet {
             id: petView
+
+            // Смещение от слоя движения. Поза приходит от спрайтового
+            // таймера — это независимые контуры (ADR-009).
+            transform: Translate {
+                x: motion.offsetX
+                y: motion.offsetY
+            }
 
             // Во время перетаскивания положение задаётся вручную: якоря
             // прижали бы питомца к краю растянутого на экран окна.

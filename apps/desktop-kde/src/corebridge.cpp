@@ -283,6 +283,38 @@ bool CoreBridge::buildLlmRequest(LlmRequest *out) const
     return true;
 }
 
+CoreBridge::Motion CoreBridge::motionFor(const QString &state) const
+{
+    Motion motion;
+    if (!m_core)
+        return motion;
+
+    const QByteArray utf8 = state.toUtf8();
+    OpenPetMotion raw {};
+    openpet_core_motion(m_core, utf8.constData(), size_t(utf8.size()), &raw);
+
+    motion.durationMs = int(raw.duration_ms);
+    motion.loops = raw.loops != 0;
+    motion.keyframes.reserve(int(raw.keyframe_count));
+
+    for (uint32_t i = 0; i < raw.keyframe_count && i < OPENPET_MAX_KEYFRAMES; ++i) {
+        motion.keyframes.append(Keyframe { raw.keyframes[i].at, raw.keyframes[i].x,
+                                           raw.keyframes[i].y, int(raw.keyframes[i].easing) });
+    }
+
+    return motion;
+}
+
+QMargins CoreBridge::motionEnvelope() const
+{
+    if (!m_core)
+        return {};
+
+    OpenPetMotionEnvelope raw {};
+    openpet_core_motion_envelope(m_core, &raw);
+    return QMargins(int(raw.left), int(raw.top), int(raw.right), int(raw.bottom));
+}
+
 CoreBridge::PackInstall CoreBridge::installPack(const QByteArray &archive, QString *outSheetPath)
 {
     PackInstall result;

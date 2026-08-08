@@ -41,6 +41,11 @@ PetViewModel::PetViewModel(CoreBridge *core, QObject *parent)
     : QObject(parent)
     , m_core(core)
 {
+    // Резерв под траекторию считается один раз: он свойство пакета,
+    // а не состояния, и меняться в работе не должен (ADR-009).
+    if (m_core)
+        m_envelope = m_core->motionEnvelope();
+
     if (!m_core)
         return;
 
@@ -86,8 +91,13 @@ void PetViewModel::applyEmotion(int emotion)
     m_emotion = emotion;
     // Раскладка перечитывается вместе с состоянием: при смене Pet Pack
     // те же состояния могут лежать в других строках листа.
-    if (m_core)
+    if (m_core) {
         m_animation = m_core->animationFor(emotionName());
+        // Движение — свойство анимации, а не отдельная сущность: смена
+        // состояния обрывает прежнее и начинает новое от нейтральной точки
+        // (ADR-009, раздел о прерывании).
+        m_motion = m_core->motionFor(emotionName());
+    }
     emit emotionChanged();
 }
 
@@ -250,6 +260,21 @@ void PetViewModel::finishDrag()
     // Положение сохраняется на отпускании, а не на каждом движении:
     // иначе перетаскивание через весь экран писало бы конфиг сотни раз.
     emit placementSettled();
+}
+
+QVariantList PetViewModel::motionKeyframes() const
+{
+    QVariantList list;
+    list.reserve(m_motion.keyframes.size());
+
+    for (const CoreBridge::Keyframe &frame : m_motion.keyframes) {
+        list.append(QVariantMap { { QStringLiteral("at"), frame.at },
+                                  { QStringLiteral("x"), frame.x },
+                                  { QStringLiteral("y"), frame.y },
+                                  { QStringLiteral("easing"), frame.easing } });
+    }
+
+    return list;
 }
 
 void PetViewModel::refreshAnimation()

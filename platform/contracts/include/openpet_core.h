@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define OPENPET_ABI_VERSION 9
+#define OPENPET_ABI_VERSION 10
 
 // Длина ключа cooldown с завершающим нулём.
 #define OPENPET_COOLDOWN_KEY_SIZE 32
@@ -136,6 +136,47 @@ typedef struct {
     uint32_t cell_width;
     uint32_t cell_height;
 } OpenPetAnimation;
+
+// Процедурное движение ([ADR-009](../../../docs/adr/0009-procedural-motion-layer.md)).
+//
+// Ядро отдаёт уже проверенные точки: доли по возрастанию, от 0.0 до 1.0,
+// смещения в пределах лимита. Хост интерполирует между ними и не проверяет
+// ничего заново.
+#define OPENPET_MAX_KEYFRAMES 32
+
+typedef enum {
+    OPENPET_EASING_LINEAR = 0,
+    OPENPET_EASING_IN_QUAD = 1,
+    OPENPET_EASING_OUT_QUAD = 2,
+    OPENPET_EASING_IN_OUT_QUAD = 3,
+} OpenPetEasing;
+
+typedef struct {
+    float at;
+    float x;
+    float y;
+    uint32_t easing;
+} OpenPetKeyframe;
+
+typedef struct {
+    // 0 означает, что у анимации движения нет: слой остаётся тождественным,
+    // и поведение пакетов без motion не меняется.
+    uint32_t keyframe_count;
+    uint32_t duration_ms;
+    uint8_t loops;
+    OpenPetKeyframe keyframes[OPENPET_MAX_KEYFRAMES];
+} OpenPetMotion;
+
+// Резерв под траекторию для всего активного пакета, в логических пикселях.
+// Поверхность получает его один раз: растягивать её на каждое движение
+// дорого, а движение случается часто.
+typedef struct {
+    uint32_t left;
+    uint32_t top;
+    uint32_t right;
+    uint32_t bottom;
+} OpenPetMotionEnvelope;
+
 
 // Провайдер LLM. Секретов здесь нет: ключ добавляет хост непосредственно
 // перед отправкой, до ядра он не доходит (ADR-008).
@@ -310,6 +351,13 @@ int32_t openpet_core_take_sheet(OpenPetCore *core, char *out, uintptr_t size);
 // активен встроенный питомец: его лист лежит в ресурсах приложения.
 void openpet_core_active_pack(OpenPetCore *core, char *out_id, uintptr_t id_size,
                               char *out_sheet_file, uintptr_t sheet_size);
+
+void openpet_core_motion_envelope(OpenPetCore *core, OpenPetMotionEnvelope *out_envelope);
+
+// Движение для состояния активного пакета. Отсутствие движения — это
+// keyframe_count == 0, а не ошибка.
+void openpet_core_motion(OpenPetCore *core, const char *state, uintptr_t state_len,
+                         OpenPetMotion *out_motion);
 
 // Раскладка кадров для состояния активного Pet Pack. Неизвестное состояние
 // подменяется fallbackAnimation — пустого окна не бывает (§FR-8).
