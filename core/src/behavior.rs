@@ -15,6 +15,9 @@ use std::time::{Duration, Instant};
 /// на поток событий (§10).
 const DEFAULT_COOLDOWN: Duration = Duration::from_secs(30);
 
+/// Сколько длится микродвижение в покое.
+const FIDGET_DURATION: Duration = Duration::from_millis(2500);
+
 /// Реакция ядра на событие (§FR-5).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reaction {
@@ -72,6 +75,13 @@ pub struct StateMachine {
     paused: bool,
     /// Последнее известное состояние медиа — определяет, занят ли пользователь.
     media: MediaState,
+    /// Когда закончится текущее микродвижение.
+    fidget_until: Option<Instant>,
+    /// Когда начнётся следующее.
+    next_fidget: Option<Instant>,
+    /// Счётчик микродвижений: даёт разнообразие без генератора случайных
+    /// чисел и делает поведение воспроизводимым в тестах.
+    fidget_cursor: usize,
 }
 
 impl Default for StateMachine {
@@ -90,6 +100,9 @@ impl StateMachine {
             low_battery_threshold: 20,
             paused: false,
             media: MediaState::Stopped,
+            fidget_until: None,
+            next_fidget: None,
+            fidget_cursor: 0,
         }
     }
 
@@ -173,6 +186,97 @@ impl StateMachine {
         self.current = Emotion::Idle;
         self.current_until = None;
         Some(Emotion::Idle)
+    }
+
+    /// Микродвижение в покое.
+    ///
+    /// Питомец, застывший в одной позе, читается как картинка, а не как
+    /// живое существо. Поэтому в покое он время от времени сам оглядывается
+    /// или машет — и возвращается обратно.
+    ///
+    /// Эмоция при этом **не меняется**: ничего не произошло, и объявлять
+    /// питомца «любопытным» без повода значило бы врать собственной
+    /// диагностике. Меняется только анимация — ради этого `Reaction`
+    /// и различает эмоцию и анимацию.
+    ///
+    /// Реплики микродвижения не порождают никогда: §4.3 запрещает
+    /// самостоятельные обращения к LLM, а болтовня без повода раздражает
+    /// быстрее всего остального (§14).
+    pub fn fidget_at(&mut self, now: Instant) -> Option<Reaction> {
+        if self.paused {
+            return None;
+        }
+
+        // Пока питомец чем-то занят, дёргаться незачем: микродвижение
+        // перебило бы настоящую реакцию.
+        if self.current != Emotion::Idle {
+            self.fidget_until = None;
+            self.next_fidget = None;
+            return None;
+        }
+
+        // Возврат в покой после микродвижения.
+        if let Some(until) = self.fidget_until {
+            if now >= until {
+                self.fidget_until = None;
+                self.next_fidget = Some(now + self.fidget_interval());
+                return Some(Reaction {
+                    emotion: Emotion::Idle,
+                    animation: Emotion::Idle,
+                    phrase_intent: None,
+                    priority: Emotion::Idle.priority(),
+                    ttl_ms: 0,
+                    cooldown_key: None,
+                });
+            }
+            return None;
+        }
+
+        let due = match self.next_fidget {
+            Some(at) => now >= at,
+            None => {
+                // Первое микродвижение не сразу после запуска: питомец,
+                // задёргавшийся на первой секунде, выглядит нервным.
+                self.next_fidget = Some(now + self.fidget_interval());
+                false
+            }
+        };
+
+        if !due {
+            return None;
+        }
+
+        // Чередование, а не случайность: одно и то же движение подряд
+        // заметно, а предсказуемость здесь не вредит.
+        let animation = match self.fidget_cursor % 3 {
+            0 => Emotion::Curious,
+            1 => Emotion::Happy,
+            _ => Emotion::Curious,
+        };
+        self.fidget_cursor = self.fidget_cursor.wrapping_add(1);
+
+        self.fidget_until = Some(now + FIDGET_DURATION);
+        self.next_fidget = None;
+
+        Some(Reaction {
+            emotion: Emotion::Idle,
+            animation,
+            phrase_intent: None,
+            priority: Emotion::Idle.priority(),
+            ttl_ms: u32::try_from(FIDGET_DURATION.as_millis()).unwrap_or(2500),
+            cooldown_key: None,
+        })
+    }
+
+    /// Промежуток до следующего микродвижения.
+    ///
+    /// Ровный интервал вычитывается глазом как тик часов, поэтому шаг
+    /// плавает. Разброс задаётся счётчиком, а не генератором: поведение
+    /// должно быть воспроизводимым в тестах.
+    fn fidget_interval(&self) -> Duration {
+        const BASE: u64 = 25;
+        let jitter = (self.fidget_cursor as u64 * 13) % 35;
+        Duration::from_secs(BASE + jitter)
     }
 
     fn candidate_for(&self, event: &DesktopEvent) -> Option<Reaction> {
@@ -310,6 +414,113 @@ mod tests {
 
     fn at(base: Instant, secs: u64) -> Instant {
         base + Duration::from_secs(secs)
+    }
+
+    #[test]
+    fn fidget_changes_animation_but_not_emotion() {
+        // Смысл всей затеи: питомец шевелится, оставаясь в покое.
+        // Если бы менялась эмоция, диагностика сообщала бы о событии,
+        // которого не было.
+        let mut machine = StateMachine::new();
+        let base = Instant::now();
+
+        assert!(
+            machine.fidget_at(base).is_none(),
+            "сразу после запуска — нет"
+        );
+
+        let fidget = machine
+            .fidget_at(at(base, 120))
+            .expect("рано или поздно питомец шевельнётся");
+
+        assert_eq!(fidget.emotion, Emotion::Idle);
+        assert_ne!(fidget.animation, Emotion::Idle);
+        assert_eq!(machine.current_emotion(), Emotion::Idle);
+    }
+
+    #[test]
+    fn fidget_is_always_silent() {
+        // §4.3: никаких самостоятельных обращений к LLM. Болтовня без повода
+        // раздражает быстрее всего остального (§14).
+        let mut machine = StateMachine::new();
+        let base = Instant::now();
+
+        for step in 0..40 {
+            if let Some(reaction) = machine.fidget_at(at(base, step * 30)) {
+                assert_eq!(reaction.phrase_intent, None, "микродвижение молчит");
+            }
+        }
+    }
+
+    #[test]
+    fn fidget_returns_to_idle_animation() {
+        let mut machine = StateMachine::new();
+        let base = Instant::now();
+
+        machine.fidget_at(base);
+        let fidget = machine.fidget_at(at(base, 120)).expect("движение началось");
+        assert_ne!(fidget.animation, Emotion::Idle);
+
+        // Пока идёт — ничего нового.
+        assert!(machine.fidget_at(at(base, 121)).is_none());
+
+        let back = machine
+            .fidget_at(at(base, 124))
+            .expect("движение кончилось");
+        assert_eq!(back.animation, Emotion::Idle);
+    }
+
+    #[test]
+    fn busy_pet_does_not_fidget() {
+        // Микродвижение перебило бы настоящую реакцию.
+        let mut machine = StateMachine::new();
+        let base = Instant::now();
+
+        machine.handle_at(DesktopEvent::PetClicked, base).unwrap();
+        assert_eq!(machine.current_emotion(), Emotion::Happy);
+
+        for step in 0..5 {
+            assert!(machine.fidget_at(at(base, step)).is_none());
+        }
+    }
+
+    #[test]
+    fn paused_pet_does_not_fidget() {
+        let mut machine = StateMachine::new();
+        machine.set_paused(true);
+        let base = Instant::now();
+
+        for step in 0..40 {
+            assert!(machine.fidget_at(at(base, step * 30)).is_none());
+        }
+    }
+
+    #[test]
+    fn fidget_intervals_are_not_uniform() {
+        // Ровный интервал вычитывается глазом как тик часов.
+        let mut machine = StateMachine::new();
+        let base = Instant::now();
+        let mut starts = Vec::new();
+
+        for second in 0..600 {
+            if let Some(reaction) = machine.fidget_at(at(base, second)) {
+                if reaction.animation != Emotion::Idle {
+                    starts.push(second);
+                }
+            }
+        }
+
+        assert!(
+            starts.len() >= 4,
+            "за десять минут покоя ожидается несколько: {starts:?}"
+        );
+
+        let gaps: Vec<u64> = starts.windows(2).map(|w| w[1] - w[0]).collect();
+        let unique: std::collections::HashSet<_> = gaps.iter().collect();
+        assert!(
+            unique.len() > 1,
+            "промежутки не должны быть одинаковы: {gaps:?}"
+        );
     }
 
     #[test]

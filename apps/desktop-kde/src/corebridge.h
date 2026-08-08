@@ -60,6 +60,10 @@ public:
         int frameDurationMs = 200;
         int cellWidth = 0;
         int cellHeight = 0;
+
+        // Сравнение нужно, чтобы не дёргать UI, когда раскладка та же:
+        // микродвижение может указать на анимацию, уже показываемую.
+        bool operator==(const Animation &other) const = default;
     };
     Animation animationFor(const QString &state) const;
 
@@ -119,6 +123,8 @@ signals:
     void reactionReceived(const CoreBridge::Reaction &reaction);
     // Ядро вернулось в покой само, без внешнего события.
     void settled(int emotion);
+    // Питомец шевельнулся в покое: меняется только анимация, не эмоция.
+    void fidgeted(int animation);
     void diagnostic(int level, const QString &message);
 
 private:

@@ -84,6 +84,9 @@ signals:
 
 private:
     void applyEmotion(int emotion);
+    // Микродвижение меняет только анимацию: эмоция остаётся прежней,
+    // потому что ничего не произошло.
+    void applyAnimation(int animation);
 
     void showPhrase(const QString &text, int ttlMs);
     void requestPhrase(const QString &fallback, int ttlMs);

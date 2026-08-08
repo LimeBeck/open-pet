@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define OPENPET_ABI_VERSION 7
+#define OPENPET_ABI_VERSION 8
 
 // Длина ключа cooldown с завершающим нулём.
 #define OPENPET_COOLDOWN_KEY_SIZE 32
@@ -200,6 +200,13 @@ uint32_t openpet_core_current_emotion(const OpenPetCore *core);
 // периодически; возвращает 1, если состояние сменилось, и записывает
 // новую эмоцию в out_emotion.
 int32_t openpet_core_settle(OpenPetCore *core, uint32_t *out_emotion);
+
+// Микродвижение в покое: питомец сам оглядывается, чтобы не выглядеть
+// картинкой. Эмоция при этом не меняется — меняется только анимация.
+// Реплик такое движение не порождает никогда (§4.3).
+//
+// Возвращает 1, если анимацию нужно сменить, 0 — если ничего не происходит.
+int32_t openpet_core_fidget(OpenPetCore *core, OpenPetReaction *out_reaction);
 
 // Порог низкого заряда в процентах.
 void openpet_core_set_low_battery_threshold(OpenPetCore *core, uint8_t percent);

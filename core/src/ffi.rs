@@ -15,7 +15,7 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 
-pub const ABI_VERSION: u32 = 7;
+pub const ABI_VERSION: u32 = 8;
 const COOLDOWN_KEY_SIZE: usize = 32;
 const PHRASE_SIZE: usize = 192;
 
@@ -466,6 +466,33 @@ pub unsafe extern "C" fn openpet_core_settle(core: *mut Core, out_emotion: *mut 
         Ok(Some(emotion)) => {
             if let Some(slot) = out_emotion.as_mut() {
                 *slot = emotion_code(emotion);
+            }
+            1
+        }
+        Ok(None) => 0,
+        Err(_) => -2,
+    }
+}
+
+/// # Safety
+/// `core` и `out_reaction` должны быть валидными указателями.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_fidget(
+    core: *mut Core,
+    out_reaction: *mut FfiReaction,
+) -> c_int {
+    let Some(core) = core.as_ref() else { return -1 };
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let mut machine = core.machine.lock().ok()?;
+        machine.fidget_at(std::time::Instant::now())
+    }));
+
+    match outcome {
+        Ok(Some(reaction)) => {
+            if let Some(slot) = out_reaction.as_mut() {
+                // Реплики у микродвижения нет и быть не может.
+                *slot = to_ffi(&reaction, None);
             }
             1
         }

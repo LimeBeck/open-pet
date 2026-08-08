@@ -304,6 +304,14 @@ int main(int argc, char *argv[])
     });
 
     QObject::connect(&viewModel, &PetViewModel::emotionChanged, [&viewModel] {
+        // Сигнал приходит и на микродвижение, при котором состояние не меняется.
+        // Писать «состояние» на каждое такое движение значит наполнять журнал
+        // событиями, которых не было, — а разбирать по нему потом чужие жалобы.
+        static QString lastLogged;
+        if (viewModel.emotionName() == lastLogged)
+            return;
+        lastLogged = viewModel.emotionName();
+
         // Имя состояния — не пользовательское содержимое, а фиксированный
         // словарь из восьми значений (§9).
         qCDebug(logApp).noquote() << "состояние:" << viewModel.emotionName();
@@ -340,6 +348,10 @@ int main(int argc, char *argv[])
     });
 
     // Возврат в покой по истечении ttl: питомец не залипает в состоянии.
+    QObject::connect(&core, &CoreBridge::fidgeted, [](int animation) {
+        qCDebug(logApp, "движение в покое: анимация %d", animation);
+    });
+
     QTimer settleTimer;
     QObject::connect(&settleTimer, &QTimer::timeout, &core, &CoreBridge::settle);
     settleTimer.start(kSettleIntervalMs);

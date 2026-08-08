@@ -457,4 +457,10 @@ void CoreBridge::settle()
     uint32_t emotion = 0;
     if (openpet_core_settle(m_core, &emotion) == 1)
         emit settled(int(emotion));
+
+    // Микродвижение проверяется тем же тиком: заводить второй таймер ради
+    // события раз в полминуты значит будить процесс вдвое чаще без нужды.
+    OpenPetReaction raw {};
+    if (openpet_core_fidget(m_core, &raw) == 1)
+        emit fidgeted(int(raw.animation));
 }

@@ -45,6 +45,13 @@ PetViewModel::PetViewModel(CoreBridge *core, QObject *parent)
                 requestPhrase(reaction.phrase, reaction.ttlMs);
             });
 
+    connect(m_core, &CoreBridge::fidgeted, this, [this](int animation) {
+        // При reduced motion питомец не дёргается сам: §7 требует, чтобы
+        // движение можно было убрать, а самопроизвольное — первое, что мешает.
+        if (!m_reducedMotion)
+            applyAnimation(animation);
+    });
+
     connect(m_core, &CoreBridge::settled, this, [this](int emotion) {
         applyEmotion(emotion);
         // Возврат в покой убирает и реплику: питомец успокоился, говорить
@@ -70,6 +77,22 @@ void PetViewModel::applyEmotion(int emotion)
     // те же состояния могут лежать в других строках листа.
     if (m_core)
         m_animation = m_core->animationFor(emotionName());
+    emit emotionChanged();
+}
+
+void PetViewModel::applyAnimation(int animation)
+{
+    if (!m_core)
+        return;
+
+    // Имя берётся из таблицы эмоций, но эмоция питомца при этом не меняется:
+    // микродвижение — это смена позы без события.
+    const int index = (animation < 0 || animation >= kEmotionCount) ? 0 : animation;
+    const auto frames = m_core->animationFor(QString::fromLatin1(kEmotionNames[index]));
+    if (frames == m_animation)
+        return;
+
+    m_animation = frames;
     emit emotionChanged();
 }
 
