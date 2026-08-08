@@ -350,19 +350,108 @@ fn system_prompt(locale: Locale) -> String {
         Locale::En => "English",
     };
 
+    // Ответ просится объектом JSON с единственным полем.
+    //
+    // Просьба «только фраза, без пояснений» не работает: модель возвращала
+    // реплику вместе с рецензией на неё — «"мне приятно, когда ты меня
+    // гладишь!" - Simple, cute, perfect fit for happy». Очиститель убирает
+    // разметку, но отличить реплику от комментария к ней он не может.
+    //
+    // С объектом граница проходит по структуре, а не по догадке о том,
+    // где кончается ответ и начинается рассуждение.
     match locale {
         Locale::Ru => format!(
-            "Ты — маленький питомец на рабочем столе. Ответь одной короткой фразой \
-             на {language} языке, не длиннее 12 слов. Без разметки, без списков, \
-             без кавычек, без пояснений и без вопросов к пользователю. \
-             Только сама фраза."
+            "Ты — маленький питомец на рабочем столе. Верни объект JSON вида \
+             {{\"phrase\": \"…\"}} и ничего кроме него. В поле phrase — одна короткая \
+             фраза на {language} языке, не длиннее 12 слов, без разметки, кавычек, \
+             пояснений и вопросов к пользователю."
         ),
         Locale::En => format!(
-            "You are a small desktop pet. Reply with one short sentence in {language}, \
-             at most 12 words. No markdown, no lists, no quotes, no explanations, \
-             no questions. The sentence only."
+            "You are a small desktop pet. Return a JSON object of the form \
+             {{\"phrase\": \"…\"}} and nothing else. The phrase field holds one short \
+             sentence in {language}, at most 12 words, with no markdown, quotes, \
+             explanations or questions."
         ),
     }
+}
+
+/// Вытаскивает значение `phrase` из оборванного объекта.
+///
+/// Разбор идёт вручную, потому что готовый разбор на неполном вводе
+/// не работает по определению. Экранированные кавычки учитываются:
+/// без этого фраза с прямой речью обрезалась бы на ней.
+fn salvage_phrase(text: &str) -> Option<String> {
+    // Только настоящий обрывок объекта. Без этой проверки выскребались куски
+    // рассуждения модели: она считала слова вслух, и в пузырь попадало
+    // «моих(4) очень(5) важных(6)» и «no quotes inside the string value».
+    if !text.starts_with('{') {
+        return None;
+    }
+
+    let after_key = text.split_once("\"phrase\"")?.1;
+    let after_colon = after_key.split_once(':')?.1;
+    let opening = after_colon.find('"')? + 1;
+    let body = &after_colon[opening..];
+
+    let mut phrase = String::new();
+    let mut escaped = false;
+
+    for ch in body.chars() {
+        if escaped {
+            // Внутри строки JSON осмысленны только эти последовательности;
+            // остальное отдаём как есть, лишь бы не потерять текст.
+            phrase.push(match ch {
+                'n' => '\n',
+                't' => '\t',
+                other => other,
+            });
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' => escaped = true,
+            '"' => break,
+            other => phrase.push(other),
+        }
+    }
+
+    (!phrase.trim().is_empty()).then(|| phrase.trim().to_string())
+}
+
+/// Достаёт реплику из ответа модели.
+///
+/// Ожидается объект с полем `phrase`. Если модель ответила свободным текстом
+/// вопреки просьбе, текст берётся как есть: промолчать из-за того, что модель
+/// не поняла формат, хуже, чем показать её ответ (§FR-6).
+fn extract_phrase(text: &str) -> String {
+    let trimmed = text.trim();
+
+    // Иногда объект приходит в ограде из тройных кавычек, несмотря на запрет
+    // разметки. Снимаем её до разбора, а не после.
+    let unfenced = trimmed
+        .strip_prefix("```json")
+        .or_else(|| trimmed.strip_prefix("```"))
+        .and_then(|rest| rest.rsplit_once("```").map(|(body, _)| body))
+        .unwrap_or(trimmed);
+
+    let candidate = unfenced.trim();
+
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(candidate) {
+        if let Some(phrase) = value.get("phrase").and_then(|p| p.as_str()) {
+            return phrase.to_string();
+        }
+    }
+
+    // Объект мог оборваться на середине: модель не уложилась в бюджет
+    // токенов, и закрывающей кавычки просто нет. Строгий разбор такое
+    // отвергает, а в пузырь тогда попадает сырой JSON — это и наблюдалось
+    // на живом Gemini. Достаём то, что успело прийти.
+    if let Some(phrase) = salvage_phrase(candidate) {
+        return phrase;
+    }
+
+    text.to_string()
 }
 
 /// Повод для реплики. Передаётся смысл события, а не событие.
@@ -407,7 +496,9 @@ pub fn build_request(provider: &Provider, request: &PhraseRequest) -> RequestPla
                 // рассуждение у моделей, которые его умеют. Без этого
                 // рассуждающая модель думает десятки секунд ради одной
                 // фразы — измерено на qwen3.5:4b, см. ADR-008.
-                r#"{{"model":"{}","stream":false,"think":false,"options":{{"num_predict":40}},"messages":[{{"role":"system","content":"{}"}},{{"role":"user","content":"{}"}}]}}"#,
+                // format:"json" — просьба к самому Ollama, а не к модели: она
+                // надёжнее любой формулировки в промпте.
+                r#"{{"model":"{}","stream":false,"think":false,"format":"json","options":{{"num_predict":200}},"messages":[{{"role":"system","content":"{}"}},{{"role":"user","content":"{}"}}]}}"#,
                 escape_json(model),
                 system,
                 user
@@ -417,7 +508,7 @@ pub fn build_request(provider: &Provider, request: &PhraseRequest) -> RequestPla
         Provider::OpenAiCompatible { base_url, model } => (
             format!("{}/chat/completions", base_url.trim_end_matches('/')),
             format!(
-                r#"{{"model":"{}","max_tokens":60,"messages":[{{"role":"system","content":"{}"}},{{"role":"user","content":"{}"}}]}}"#,
+                r#"{{"model":"{}","max_tokens":256,"response_format":{{"type":"json_object"}},"messages":[{{"role":"system","content":"{}"}},{{"role":"user","content":"{}"}}]}}"#,
                 escape_json(model),
                 system,
                 user
@@ -434,15 +525,16 @@ pub fn build_request(provider: &Provider, request: &PhraseRequest) -> RequestPla
                 region, project, region, model
             ),
             format!(
-                // Потолок токенов высокий не ради длинной фразы: её длину
-                // задаёт инструкция. Модели Gemini тратят часть бюджета
-                // на размышление, и при потолке в 60 токенов на ответ
-                // не остаётся ничего — приходит пустой content.
+                // Потолок высокий не ради длинной фразы: её длину задаёт
+                // инструкция. Gemini тратит часть бюджета на размышление,
+                // и при тесном потолке объект обрывается на середине —
+                // наблюдалось вживую. Облачная модель отвечает быстро,
+                // поэтому экономить на потолке нечего.
                 //
                 // Отключить размышление полем thinkingConfig не вышло:
                 // часть моделей отвечает на него «invalid argument».
                 // Проверено на живом gemini-flash-latest.
-                r#"{{"systemInstruction":{{"parts":[{{"text":"{}"}}]}},"contents":[{{"role":"user","parts":[{{"text":"{}"}}]}}],"generationConfig":{{"maxOutputTokens":512}}}}"#,
+                r#"{{"systemInstruction":{{"parts":[{{"text":"{}"}}]}},"contents":[{{"role":"user","parts":[{{"text":"{}"}}]}}],"generationConfig":{{"maxOutputTokens":2048,"responseMimeType":"application/json"}}}}"#,
                 system, user
             ),
         ),
@@ -456,15 +548,16 @@ pub fn build_request(provider: &Provider, request: &PhraseRequest) -> RequestPla
                 escape_json(model)
             ),
             format!(
-                // Потолок токенов высокий не ради длинной фразы: её длину
-                // задаёт инструкция. Модели Gemini тратят часть бюджета
-                // на размышление, и при потолке в 60 токенов на ответ
-                // не остаётся ничего — приходит пустой content.
+                // Потолок высокий не ради длинной фразы: её длину задаёт
+                // инструкция. Gemini тратит часть бюджета на размышление,
+                // и при тесном потолке объект обрывается на середине —
+                // наблюдалось вживую. Облачная модель отвечает быстро,
+                // поэтому экономить на потолке нечего.
                 //
                 // Отключить размышление полем thinkingConfig не вышло:
                 // часть моделей отвечает на него «invalid argument».
                 // Проверено на живом gemini-flash-latest.
-                r#"{{"systemInstruction":{{"parts":[{{"text":"{}"}}]}},"contents":[{{"role":"user","parts":[{{"text":"{}"}}]}}],"generationConfig":{{"maxOutputTokens":512}}}}"#,
+                r#"{{"systemInstruction":{{"parts":[{{"text":"{}"}}]}},"contents":[{{"role":"user","parts":[{{"text":"{}"}}]}}],"generationConfig":{{"maxOutputTokens":2048,"responseMimeType":"application/json"}}}}"#,
                 system, user
             ),
         ),
@@ -519,7 +612,7 @@ pub fn parse_response(provider: &Provider, raw: &[u8]) -> Result<String, LlmErro
     // мог вернуть ошибку с кодом 200, и путать эти случаи не стоит.
     let text = text.ok_or(LlmError::Malformed)?;
 
-    sanitize(text)
+    sanitize(&extract_phrase(text))
 }
 
 /// Приводит ответ модели к тому, что можно показать в пузыре (§FR-6).
@@ -660,13 +753,29 @@ mod tests {
         let system_content = body["messages"][0]["content"].as_str().unwrap();
         assert_eq!(system_content, system_prompt(Locale::Ru));
 
-        // Полей верхнего уровня ровно столько, сколько объявлено.
-        let keys: Vec<&String> = body.as_object().unwrap().keys().collect();
-        assert_eq!(keys.len(), 5, "лишние поля в теле запроса: {keys:?}");
+        // Поля верхнего уровня перечислены поимённо, а не посчитаны:
+        // счётчик сообщал бы «стало шесть вместо пяти», а список говорит,
+        // что именно добавилось. Любое новое поле обязано пройти здесь
+        // и быть осознанным — это единственный заслон против того, чтобы
+        // в запрос по недосмотру попало что-то о пользователе (§US-06).
+        let mut keys: Vec<&str> = body
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            ["format", "messages", "model", "options", "stream", "think"],
+            "состав тела запроса изменился"
+        );
 
         // Генерация ограничена: питомцу нужна фраза, а не рассуждение.
-        assert_eq!(body["options"]["num_predict"], 40);
+        assert_eq!(body["options"]["num_predict"], 200);
         assert_eq!(body["think"], false);
+        // Формат просится у самого Ollama: словами модель его игнорирует.
+        assert_eq!(body["format"], "json");
     }
 
     #[test]
@@ -817,6 +926,95 @@ mod tests {
         Provider::GoogleAiStudio {
             model: "gemini-2.0-flash".to_string(),
         }
+    }
+
+    #[test]
+    fn phrase_is_taken_from_the_json_field() {
+        let response = r#"{"message":{"content":"{\"phrase\": \"Ещё разок!\"}"}}"#;
+        assert_eq!(
+            parse_response(&ollama(), response.as_bytes()),
+            Ok("Ещё разок!".to_string())
+        );
+    }
+
+    #[test]
+    fn commentary_next_to_the_phrase_no_longer_leaks() {
+        // Настоящий случай: модель вернула реплику вместе с рецензией на неё.
+        // Со свободным текстом отличить одно от другого нельзя, с объектом —
+        // граница проходит по структуре.
+        let response = r#"{"message":{"content":"{\"phrase\": \"мне так приятно, когда ты меня гладишь!\", \"note\": \"Simple, cute, perfect fit for happy\"}"}}"#;
+        assert_eq!(
+            parse_response(&ollama(), response.as_bytes()),
+            Ok("мне так приятно, когда ты меня гладишь!".to_string())
+        );
+    }
+
+    #[test]
+    fn truncated_json_still_yields_the_phrase() {
+        // Настоящий случай с живого Gemini: модель не уложилась в бюджет
+        // токенов, объект оборвался, и в пузырь падал сырой JSON.
+        let response = r#"{"message":{"content":"{\"phrase\": \"Зарядка идет, я наполняюсь свежей энергией"}}"#;
+        assert_eq!(
+            parse_response(&ollama(), response.as_bytes()),
+            Ok("Зарядка идет, я наполняюсь свежей энергией".to_string())
+        );
+    }
+
+    #[test]
+    fn quotes_inside_the_phrase_survive() {
+        // Без учёта экранирования фраза обрезалась бы на первой же кавычке.
+        let response = r#"{"message":{"content":"{\"phrase\": \"Ты сказал \\\"привет\\\" — и мне приятно\"}"}}"#;
+        let phrase = parse_response(&ollama(), response.as_bytes()).unwrap();
+        assert!(phrase.contains("привет"), "{phrase}");
+    }
+
+    #[test]
+    fn fenced_json_is_unwrapped() {
+        // Ограду из тройных кавычек модели ставят даже когда разметка
+        // запрещена словами.
+        let response = r#"{"message":{"content":"```json\n{\"phrase\": \"Мурр.\"}\n```"}}"#;
+        assert_eq!(
+            parse_response(&ollama(), response.as_bytes()),
+            Ok("Мурр.".to_string())
+        );
+    }
+
+    #[test]
+    fn plain_text_still_works() {
+        // Модель может не понять формат. Промолчать из-за этого хуже,
+        // чем показать её ответ (§FR-6).
+        let response = r#"{"message":{"content":"Заряжаемся!"}}"#;
+        assert_eq!(
+            parse_response(&ollama(), response.as_bytes()),
+            Ok("Заряжаемся!".to_string())
+        );
+    }
+
+    #[test]
+    fn every_provider_asks_for_json() {
+        // Просьба словами не работает — её игнорируют. Формат просится
+        // у самого провайдера.
+        let request = PhraseRequest {
+            intent: PhraseIntent::Petted,
+            emotion: Emotion::Happy,
+            locale: Locale::Ru,
+        };
+
+        assert!(build_request(&ollama(), &request)
+            .body
+            .contains(r#""format":"json""#));
+        assert!(build_request(
+            &Provider::OpenAiCompatible {
+                base_url: "https://x/v1".to_string(),
+                model: "m".to_string()
+            },
+            &request
+        )
+        .body
+        .contains("json_object"));
+        assert!(build_request(&ai_studio(), &request)
+            .body
+            .contains("application/json"));
     }
 
     #[test]

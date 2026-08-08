@@ -43,7 +43,7 @@
       "row": 2,
       "startColumn": 0,
       "frames": 5,
-      "frameDurationMs": 120,
+      "frameDurationMs": 180,
       "motion": {
         "durationMs": 900,
         "loop": true,

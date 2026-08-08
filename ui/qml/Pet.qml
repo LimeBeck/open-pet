@@ -29,6 +29,16 @@ Item {
     // Номер кадра внутри анимации, не столбец листа.
     property int frameIndex: 0
 
+    // Внешний хозяин времени. Отрицательное значение означает, что кадры
+    // идут своим таймером; от 0 до 1 — что их ведёт процедурное движение.
+    //
+    // Нужно потому, что иначе циклы разъезжаются: у встроенного прыжка
+    // спрайт крутился 600 мс, а траектория 900, и совпадали они раз
+    // в 1800 мс. Всё остальное время питомец показывал приземление,
+    // находясь в верхней точке.
+    property real syncProgress: -1
+    readonly property bool synced: syncProgress >= 0
+
     implicitWidth: root.cellWidth
     implicitHeight: root.cellHeight
 
@@ -49,7 +59,8 @@ Item {
             source: root.sheet
             // Лист сдвигается целиком — это перенос уже загруженной текстуры,
             // без повторного разбора PNG на каждом кадре.
-            x: -(root.startColumn + root.frameIndex) * root.cellWidth
+            x: -(root.startColumn + (root.synced ? root.syncedFrame : root.frameIndex))
+               * root.cellWidth
             y: -root.row * root.cellHeight
 
             // Пиксель-арт: сглаживание превратило бы его в мыло.
@@ -63,10 +74,16 @@ Item {
         }
     }
 
+    // Кадр по доле пройденного пути. Последний кадр не должен мелькать
+    // на самом конце, поэтому индекс ограничивается сверху.
+    readonly property int syncedFrame: Math.min(
+        Math.max(0, Math.floor(root.syncProgress * root.frames)), root.frames - 1)
+
     Timer {
         // При reduced motion питомец замирает на первом кадре состояния,
         // но остаётся видимым и меняет позу при смене эмоции (§7).
-        running: root.animated && root.frames > 1 && root.sheet != ""
+        // Собственный таймер молчит, пока кадры ведёт движение.
+        running: root.animated && root.frames > 1 && root.sheet != "" && !root.synced
         interval: Math.max(20, root.frameDuration)
         repeat: true
         onTriggered: root.frameIndex = (root.frameIndex + 1) % Math.max(1, root.frames)
