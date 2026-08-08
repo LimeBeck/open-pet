@@ -18,7 +18,7 @@ const BUILTIN_MANIFEST: &str = include_str!("../../../assets/builtin-pet/manifes
 
 /// Размеры листа встроенного питомца. Ядро не декодирует изображения —
 /// это забота хоста, — поэтому для встроенного они known заранее.
-const BUILTIN_SHEET: (u32, u32) = (1536, 2288);
+const BUILTIN_SHEET: (u32, u32) = (1536, 1456);
 
 /// Где лежит лист активного пакета.
 #[derive(Debug, Clone, PartialEq, Eq)]

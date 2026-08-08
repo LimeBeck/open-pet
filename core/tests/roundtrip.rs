@@ -24,6 +24,10 @@ fn real_pack_survives_the_whole_path() {
     let raw = pack.find("manifest.json").expect("манифест на месте");
     let manifest = Manifest::parse(raw).expect("манифест разбирается");
 
-    let report = validate(&manifest, 1536, 2288, &Limits::default());
+    // Размеры берутся из самого листа архива, а не вписаны числами:
+    // тест не должен разваливаться от того, что питомца перерисовали.
+    let sheet = pack.find(&manifest.sheet).expect("лист на месте");
+    let (width, height) = openpet_core::petpack::png_dimensions(sheet).expect("лист — PNG");
+    let report = validate(&manifest, width, height, &Limits::default());
     assert!(report.is_acceptable(), "{:?}", report.findings);
 }

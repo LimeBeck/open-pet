@@ -9,22 +9,65 @@
   "sheetSha256": "6d332d08b50a9a5bb758fb7963d36f6d892f429aae11a956b6cb8b8329e1d3ee",
   "grid": {
     "columns": 8,
-    "rows": 11,
+    "rows": 7,
     "cellWidth": 192,
     "cellHeight": 208
   },
   "fallbackAnimation": "idle",
   "animations": {
-    "idle":         { "row": 0,  "startColumn": 0, "frames": 6, "frameDurationMs": 220 },
-    "happy":        { "row": 3,  "startColumn": 0, "frames": 4, "frameDurationMs": 150 },
-    "curious":      { "row": 9,  "startColumn": 0, "frames": 8, "frameDurationMs": 170 },
-    "sleepy":       { "row": 5,  "startColumn": 0, "frames": 6, "frameDurationMs": 420 },
-    "charging":     { "row": 4,  "startColumn": 0, "frames": 5, "frameDurationMs": 120 },
-    "low_battery":  { "row": 5,  "startColumn": 6, "frames": 2, "frameDurationMs": 700 },
-    "notification": { "row": 6,  "startColumn": 0, "frames": 6, "frameDurationMs": 160 },
-    "busy":         { "row": 7,  "startColumn": 0, "frames": 6, "frameDurationMs": 200 }
+    "idle": {
+      "row": 0,
+      "startColumn": 0,
+      "frames": 6,
+      "frameDurationMs": 220
+    },
+    "happy": {
+      "row": 1,
+      "startColumn": 0,
+      "frames": 4,
+      "frameDurationMs": 150
+    },
+    "curious": {
+      "row": 6,
+      "startColumn": 0,
+      "frames": 8,
+      "frameDurationMs": 170
+    },
+    "sleepy": {
+      "row": 3,
+      "startColumn": 0,
+      "frames": 6,
+      "frameDurationMs": 420
+    },
+    "charging": {
+      "row": 2,
+      "startColumn": 0,
+      "frames": 5,
+      "frameDurationMs": 120
+    },
+    "low_battery": {
+      "row": 3,
+      "startColumn": 6,
+      "frames": 2,
+      "frameDurationMs": 700
+    },
+    "notification": {
+      "row": 4,
+      "startColumn": 0,
+      "frames": 6,
+      "frameDurationMs": 160
+    },
+    "busy": {
+      "row": 5,
+      "startColumn": 0,
+      "frames": 6,
+      "frameDurationMs": 200
+    }
   },
-  "locales": ["ru", "en"],
+  "locales": [
+    "ru",
+    "en"
+  ],
   "unusedRows": {
     "1": "running-right — перемещение по экрану, P1",
     "2": "running-left — перемещение по экрану, P1",

@@ -94,7 +94,17 @@ mod png_tests {
 
     #[test]
     fn reads_the_real_builtin_sheet() {
+        // Числа сверяются с манифестом, а не вписаны сюда: иначе обрезка
+        // неиспользуемых строк ломала бы тест разбора PNG, к которому
+        // она отношения не имеет.
         let sheet = include_bytes!("../../../assets/builtin-pet/lime.png");
-        assert_eq!(png_dimensions(sheet), Some((1536, 2288)));
+        let manifest = include_str!("../../../assets/builtin-pet/manifest.json");
+
+        let (width, height) = png_dimensions(sheet).expect("встроенный лист — PNG");
+        let manifest = crate::petpack::Manifest::parse(manifest.as_bytes()).expect("манифест");
+        let grid = manifest.grid;
+
+        assert_eq!(width, grid.columns * grid.cell_width);
+        assert_eq!(height, grid.rows * grid.cell_height);
     }
 }

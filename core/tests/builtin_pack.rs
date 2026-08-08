@@ -9,8 +9,12 @@ use openpet_core::petpack::{validate, Limits, Manifest, Severity};
 
 /// Размеры листа встроенного питомца. Декодировать PNG ядру нечем и незачем —
 /// размеры приходят снаружи, как и от хоста при настоящем импорте.
-const SHEET_WIDTH: u32 = 1536;
-const SHEET_HEIGHT: u32 = 2288;
+/// Размеры читаются из самого листа, а не вписаны числами: иначе любая
+/// правка питомца ломала бы тесты, к содержимому листа не относящиеся.
+fn sheet_size() -> (u32, u32) {
+    let sheet = include_bytes!("../../assets/builtin-pet/lime.png");
+    openpet_core::petpack::png_dimensions(sheet).expect("встроенный лист — PNG")
+}
 
 fn builtin_manifest() -> Manifest {
     let path = concat!(
@@ -24,7 +28,12 @@ fn builtin_manifest() -> Manifest {
 #[test]
 fn builtin_pet_passes_its_own_validator() {
     let manifest = builtin_manifest();
-    let report = validate(&manifest, SHEET_WIDTH, SHEET_HEIGHT, &Limits::default());
+    let report = validate(
+        &manifest,
+        sheet_size().0,
+        sheet_size().1,
+        &Limits::default(),
+    );
 
     let problems: Vec<&str> = report.findings.iter().map(|f| f.message.as_str()).collect();
     assert!(
