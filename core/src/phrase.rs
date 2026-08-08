@@ -36,6 +36,8 @@ pub enum PhraseIntent {
     MediaStarted,
     /// По питомцу кликнули.
     Petted,
+    /// Питомца перетащили на новое место.
+    PickedUp,
 }
 
 impl PhraseIntent {
@@ -49,10 +51,11 @@ impl PhraseIntent {
             PhraseIntent::NoticedContext => "noticed_context",
             PhraseIntent::MediaStarted => "media_started",
             PhraseIntent::Petted => "petted",
+            PhraseIntent::PickedUp => "picked_up",
         }
     }
 
-    pub const ALL: [PhraseIntent; 8] = [
+    pub const ALL: [PhraseIntent; 9] = [
         PhraseIntent::WelcomeBack,
         PhraseIntent::GettingSleepy,
         PhraseIntent::Charging,
@@ -61,6 +64,7 @@ impl PhraseIntent {
         PhraseIntent::NoticedContext,
         PhraseIntent::MediaStarted,
         PhraseIntent::Petted,
+        PhraseIntent::PickedUp,
     ];
 }
 
@@ -204,6 +208,24 @@ const TEMPLATES: &[Template] = &[
         intent: PhraseIntent::MediaStarted,
         ru: "Не буду мешать.",
         en: "I'll keep quiet then.",
+    },
+    Template {
+        id: "picked_up.1",
+        intent: PhraseIntent::PickedUp,
+        ru: "Ух, полетели!",
+        en: "Whee, moving!",
+    },
+    Template {
+        id: "picked_up.2",
+        intent: PhraseIntent::PickedUp,
+        ru: "Мне и тут неплохо.",
+        en: "I liked it there.",
+    },
+    Template {
+        id: "picked_up.3",
+        intent: PhraseIntent::PickedUp,
+        ru: "Устроимся здесь.",
+        en: "Let's settle here.",
     },
     Template {
         id: "petted.1",

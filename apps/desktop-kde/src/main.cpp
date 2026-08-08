@@ -249,7 +249,7 @@ int main(int argc, char *argv[])
     if (qEnvironmentVariableIsSet("OPENPET_IMPORT_PACK")) {
         QObject::connect(&settingsController, &SettingsController::changed, [&] {
             qCInfo(logApp).noquote() << settingsController.packStatus();
-            QCoreApplication::exit(settingsController.packStatus().startsWith(QLatin1Char('✓'))
+            QCoreApplication::exit(settingsController.packStatus().startsWith(QStringLiteral("✓"))
                                        ? 0
                                        : 1);
         });
@@ -278,6 +278,7 @@ int main(int argc, char *argv[])
     }
 
     OverlaySurface overlay(window);
+    viewModel.setOverlay(&overlay);
     if (!overlay.configure(settings.corner,
                            QMargins(0, 0, settings.marginRight, settings.marginBottom))) {
         // §10: понятная ошибка совместимости, а не молчаливый запуск
@@ -494,6 +495,24 @@ int main(int argc, char *argv[])
     // и надо было проверить, не он ли мешает отрисовке overlay.
     const bool trayEnabled = !qEnvironmentVariableIsSet("OPENPET_NO_TRAY");
 
+    // Питомца перетащили: новое положение переживает перезапуск (§US-02).
+    {
+        static Settings placement = settings;
+        QObject::connect(&overlay, &OverlaySurface::placementChanged,
+                         [](OverlaySurface::Corner corner, const QMargins &margins) {
+                             placement.corner = corner;
+                             placement.marginRight = margins.right();
+                             placement.marginBottom = margins.bottom();
+                         });
+        QObject::connect(&viewModel, &PetViewModel::placementSettled, [] {
+            placement.save();
+            qCDebug(logApp).noquote()
+                << QStringLiteral("положение сохранено: отступы %1, %2")
+                       .arg(placement.marginRight)
+                       .arg(placement.marginBottom);
+        });
+    }
+
     QObject::connect(&settingsController, &SettingsController::petPackChanged,
                      [&](const QString &sheetPath) {
                          // Пустой путь — вернулись к встроенному питомцу,
@@ -572,6 +591,23 @@ int main(int argc, char *argv[])
         QMetaObject::invokeMethod(window, "show");
         QMetaObject::invokeMethod(window, "raise");
     };
+
+    // Перенос между мониторами — отдельным действием, а не перетаскиванием.
+    // Под Wayland клиент не знает настоящей позиции курсора, поэтому «куда
+    // потащили» ему неизвестно; пункт меню знает это точно.
+    QAction *screenAction = menu.addAction(QObject::tr("Перенести на другой экран"));
+    screenAction->setEnabled(QGuiApplication::screens().size() > 1);
+    QObject::connect(screenAction, &QAction::triggered, [&] {
+        if (!overlay.moveToNextScreen())
+            qCWarning(logApp, "перенос между экранами не удался");
+    });
+
+    QObject::connect(qGuiApp, &QGuiApplication::screenAdded, [screenAction] {
+        screenAction->setEnabled(QGuiApplication::screens().size() > 1);
+    });
+    QObject::connect(qGuiApp, &QGuiApplication::screenRemoved, [screenAction] {
+        screenAction->setEnabled(QGuiApplication::screens().size() > 1);
+    });
 
     QAction *settingsAction = menu.addAction(QObject::tr("Настройки…"));
     QObject::connect(settingsAction, &QAction::triggered, openSettings);

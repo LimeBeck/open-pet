@@ -42,6 +42,9 @@ typedef enum {
     OPENPET_EVENT_NOTIFICATION_OCCURRED = 5,
     OPENPET_EVENT_MEDIA_CHANGED = 6,
     OPENPET_EVENT_PET_CLICKED = 7,
+    // Питомца потащили курсором. Отдельно от клика: это разные обращения,
+    // и общий cooldown съедал бы второе.
+    OPENPET_EVENT_PET_DRAGGED = 8,
 } OpenPetEventKind;
 
 typedef enum {

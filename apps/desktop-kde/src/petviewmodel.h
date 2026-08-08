@@ -3,6 +3,7 @@
 #include "corebridge.h"
 
 #include <QObject>
+#include <QPoint>
 #include <QString>
 #include <QUrl>
 #include <QTimer>
@@ -13,6 +14,7 @@
 // QML не знает ни о ядре, ни о событиях рабочего стола — только о текущей
 // эмоции и о том, приостановлены ли реакции.
 class LlmClient;
+class OverlaySurface;
 
 class PetViewModel : public QObject
 {
@@ -68,6 +70,18 @@ public:
 
     Q_INVOKABLE void handleClick();
 
+    // Перетаскивание (§FR-2). Разбито на четыре вызова намеренно: реплика
+    // должна прозвучать один раз за перетаскивание, а не на каждый пиксель.
+    Q_INVOKABLE void handleDragStart();
+    // Шаг перетаскивания. Смещение считается по глобальной позиции курсора,
+    // а не по координатам внутри окна: окно двигается под курсором, и дельта
+    // в его системе отсчёта начинает считаться от уехавшей точки — питомец
+    // от этого скачет по экрану.
+    Q_INVOKABLE void dragTick();
+    Q_INVOKABLE void finishDrag();
+
+    void setOverlay(OverlaySurface *overlay) { m_overlay = overlay; }
+
     // Пузырь закрывается по клику, не только по таймеру (§FR-6).
     Q_INVOKABLE void dismissPhrase();
 
@@ -81,6 +95,8 @@ signals:
     void pausedChanged();
     void scaleChanged();
     void reducedMotionChanged();
+    // Питомца отпустили: хосту пора записать новое положение.
+    void placementSettled();
 
 private:
     void applyEmotion(int emotion);
@@ -102,6 +118,8 @@ private:
 
     // Необязательная зависимость: без неё питомец говорит только шаблонами.
     LlmClient *m_llm = nullptr;
+    OverlaySurface *m_overlay = nullptr;
+    QPoint m_lastCursor;
     // Шаблон, ждущий, пока ответит модель. Если она не ответит или ответит
     // негодно, покажется именно он (§FR-6).
     QString m_pendingTemplate;

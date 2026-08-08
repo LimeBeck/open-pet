@@ -24,14 +24,19 @@ Window {
     title: qsTr("open-pet — настройки")
 
     ScrollView {
+        id: scroll
         anchors.fill: parent
         contentWidth: availableWidth
 
         ColumnLayout {
-            width: root.width - 32
-            x: 16
-            y: 16
+            // Ширина считается от availableWidth, а не от окна: полоса
+            // прокрутки занимает место, и содержимое уезжало под неё.
+            width: scroll.availableWidth - 2 * margin
+            x: margin
+            y: margin
             spacing: 18
+
+            readonly property int margin: 16
 
             // --- Внешний вид ---
             Label { text: qsTr("Внешний вид"); font.bold: true }
@@ -220,30 +225,44 @@ Window {
                 }
 
                 Label { text: qsTr("Модель"); visible: root.model.llmKind > 0 }
-                // Список заполняется после проверки связи — до неё провайдер
-                // ничего о себе не рассказывал. Поле остаётся редактируемым:
-                // модель может быть новее нашего списка, и запрещать ввести
-                // её вручную значило бы ломать работающую настройку.
+                // Список приходит от провайдера после проверки связи.
+                // Поле остаётся редактируемым: модель может быть новее
+                // нашего списка, и запрещать ввести её вручную значило бы
+                // ломать работающую настройку.
                 ComboBox {
+                    id: modelBox
                     Layout.fillWidth: true
                     visible: root.model.llmKind > 0
                     editable: true
                     model: root.model.availableModels
 
-                    Component.onCompleted: editText = root.model.llmModel
+                    // Присвоение в Component.onCompleted не держится: когда
+                    // список приходит асинхронно, ComboBox переустанавливает
+                    // editText и стирает сохранённую модель. Привязка
+                    // отключается на время правки, чтобы не мешать вводу.
+                    Binding {
+                        target: modelBox
+                        property: "editText"
+                        value: root.model.llmModel
+                        when: !modelBox.activeFocus && !modelBox.popup.visible
+                        restoreMode: Binding.RestoreNone
+                    }
+
                     onAccepted: root.model.llmModel = editText
                     onActivated: root.model.llmModel = editText
+                }
 
-                    // Список приходит асинхронно; уже введённое не затираем.
-                    Connections {
-                        target: root.model
-                        function onChanged() {
-                            if (root.model.llmModel !== "")
-                                return
-                            if (root.model.availableModels.length > 0)
-                                root.model.llmModel = root.model.availableModels[0]
-                        }
-                    }
+                Label {
+                    text: ""
+                    visible: root.model.llmKind > 0 && root.model.availableModels.length === 0
+                }
+                Label {
+                    Layout.fillWidth: true
+                    visible: root.model.llmKind > 0 && root.model.availableModels.length === 0
+                    wrapMode: Text.Wrap
+                    opacity: 0.75
+                    text: qsTr("Список загрузится после проверки связи. Модель можно "
+                               + "вписать и вручную.")
                 }
 
                 Label { text: qsTr("Таймаут, мс"); visible: root.model.llmKind > 0 }

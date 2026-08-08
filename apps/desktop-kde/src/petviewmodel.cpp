@@ -2,6 +2,14 @@
 
 #include "corebridge.h"
 #include "llmclient.h"
+#include "overlaysurface.h"
+
+#include <QCursor>
+#include <QLoggingCategory>
+#include <QGuiApplication>
+#include <QScreen>
+
+Q_DECLARE_LOGGING_CATEGORY(logApp)
 
 #include <QLoggingCategory>
 
@@ -22,7 +30,9 @@ constexpr int kEmotionCount = int(std::size(kEmotionNames));
 // сон длится час, и реплика висела бы всё это время. Нижняя граница нужна,
 // чтобы короткие состояния успевали быть прочитанными (§FR-6).
 constexpr int kBubbleMinMs = 2500;
-constexpr int kBubbleMaxMs = 6000;
+// Потолок поднят: реплики от модели длиннее шаблонных, и шести секунд
+// на полсотни знаков не хватало.
+constexpr int kBubbleMaxMs = 9000;
 
 } // namespace
 
@@ -195,7 +205,14 @@ void PetViewModel::showPhrase(const QString &text, int ttlMs)
     m_phrase = text;
     emit phraseChanged();
 
-    m_phraseTimer.start(qBound(kBubbleMinMs, ttlMs, kBubbleMaxMs));
+    // Пузырь живёт столько, сколько нужно прочитать, а не столько, сколько
+    // держится эмоция. Это разные вещи: клик даёт эмоцию на 2.5 секунды,
+    // а фразу от модели на полсотни знаков за это время не прочесть.
+    //
+    // 55 мс на знак — примерно 18 знаков в секунду, темп беглого чтения
+    // текста, которого не ждёшь. Плюс полторы секунды на заметить.
+    const int readingMs = 1500 + text.size() * 55;
+    m_phraseTimer.start(qBound(kBubbleMinMs, qMax(ttlMs, readingMs), kBubbleMaxMs));
 }
 
 void PetViewModel::dismissPhrase()
@@ -207,6 +224,40 @@ void PetViewModel::dismissPhrase()
 
     m_phrase.clear();
     emit phraseChanged();
+}
+
+void PetViewModel::handleDragStart()
+{
+    m_lastCursor = QCursor::pos();
+
+    if (m_core)
+        m_core->pushPetDragged();
+}
+
+void PetViewModel::dragTick()
+{
+    if (!m_overlay)
+        return;
+
+    const QPoint now = QCursor::pos();
+    const QPoint delta = now - m_lastCursor;
+
+    // Опорная точка обновляется всегда, даже когда окно упёрлось в край
+    // и сдвинулось меньше запрошенного. Иначе накапливалась бы разница,
+    // и после возврата от края питомец прыгал бы рывком.
+    m_lastCursor = now;
+
+    if (delta.isNull())
+        return;
+
+    m_overlay->moveBy(delta.x(), delta.y());
+}
+
+void PetViewModel::finishDrag()
+{
+    // Положение сохраняется на отпускании, а не на каждом движении:
+    // иначе перетаскивание через весь экран писало бы конфиг сотни раз.
+    emit placementSettled();
 }
 
 void PetViewModel::refreshAnimation()

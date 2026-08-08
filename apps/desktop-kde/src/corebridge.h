@@ -44,6 +44,8 @@ public:
     bool pushNotification(const QString &category);
     bool pushMediaChanged(OpenPetMediaState state);
     bool pushPetClicked();
+    // Перетаскивание — отдельное обращение, а не разновидность клика.
+    bool pushPetDragged();
 
     void setPaused(bool paused);
     bool isPaused() const;

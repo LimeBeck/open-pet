@@ -187,6 +187,12 @@ bool CoreBridge::pushPetClicked()
     return push(event);
 }
 
+bool CoreBridge::pushPetDragged()
+{
+    OpenPetEvent event = makeEvent(OPENPET_EVENT_PET_DRAGGED);
+    return push(event);
+}
+
 void CoreBridge::setPaused(bool paused)
 {
     if (m_core)

@@ -3,6 +3,7 @@
 #include <QMargins>
 #include <QObject>
 #include <QRegion>
+#include <QPoint>
 #include <QTimer>
 
 class QQuickWindow;
@@ -37,6 +38,28 @@ public:
     // или геометрии окна.
     void scheduleRegionUpdate();
 
+    // Сдвигает питомца на dx, dy пикселей (§FR-2).
+    //
+    // У layer-shell поверхности нет координат: положение задаётся якорем
+    // и отступами. Поэтому перетаскивание — это правка отступов, а знак
+    // сдвига зависит от того, к какому углу привязан питомец.
+    //
+    // Возвращает фактическое смещение: у краёв экрана оно меньше
+    // запрошенного, и вызывающий должен знать об этом, чтобы курсор
+    // не «уезжал» от питомца.
+    QPoint moveBy(int dx, int dy);
+
+    // Переносит питомца на следующий монитор по кругу (§FR-1).
+    //
+    // Не привязано к курсору намеренно: под Wayland клиент не знает
+    // настоящей позиции указателя. Проверено — QCursor::pos() у layer-shell
+    // поверхности возвращает координаты, не соответствующие экрану,
+    // на котором питомец находится.
+    bool moveToNextScreen();
+
+    Corner corner() const { return m_corner; }
+    QMargins margins() const { return m_margins; }
+
     bool isLayerShellAvailable() const { return m_layerShellAvailable; }
 
     // Диагностика для §7: сколько прямоугольников в текущем регионе
@@ -46,11 +69,15 @@ public:
 
 signals:
     void regionUpdated(int rectCount, qreal buildMs);
+    // Питомец переехал: хосту нужно сохранить положение, а не гадать.
+    void placementChanged(Corner corner, const QMargins &margins);
 
 private:
     void rebuildRegion();
 
     QQuickWindow *m_window = nullptr;
+    Corner m_corner = Corner::BottomRight;
+    QMargins m_margins;
     QTimer m_regionTimer;
     bool m_layerShellAvailable = false;
     int m_regionRectCount = 0;

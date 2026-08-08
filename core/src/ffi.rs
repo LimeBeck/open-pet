@@ -27,6 +27,7 @@ const EVENT_ACTIVE_APP_CHANGED: u32 = 4;
 const EVENT_NOTIFICATION_OCCURRED: u32 = 5;
 const EVENT_MEDIA_CHANGED: u32 = 6;
 const EVENT_PET_CLICKED: u32 = 7;
+const EVENT_PET_DRAGGED: u32 = 8;
 
 const LOG_WARNING: i32 = 1;
 
@@ -288,6 +289,8 @@ unsafe fn to_domain(event: &FfiEvent) -> Option<DesktopEvent> {
         },
 
         EVENT_PET_CLICKED => DesktopEvent::PetClicked,
+
+        EVENT_PET_DRAGGED => DesktopEvent::PetDragged,
 
         _ => return None,
     };

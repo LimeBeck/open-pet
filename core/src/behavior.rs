@@ -392,6 +392,18 @@ impl StateMachine {
                 MediaState::Paused | MediaState::Stopped => return None,
             },
 
+            DesktopEvent::PetDragged => {
+                // Отдельный cooldown от клика: перетащить питомца и тут же
+                // погладить — два разных обращения, и молчать на второе
+                // из-за первого неправильно.
+                Reaction::new(
+                    Emotion::Curious,
+                    Some(PhraseIntent::PickedUp),
+                    3_000,
+                    Some("pet_dragged"),
+                )
+            }
+
             DesktopEvent::PetClicked => {
                 // Клик — единственное намеренное обращение пользователя,
                 // поэтому cooldown короче общего (§FR-2).
@@ -521,6 +533,41 @@ mod tests {
             unique.len() > 1,
             "промежутки не должны быть одинаковы: {gaps:?}"
         );
+    }
+
+    #[test]
+    fn drag_and_click_do_not_silence_each_other() {
+        // Перетащить питомца и тут же погладить — два разных обращения.
+        // Общий cooldown съел бы второе.
+        let mut machine = StateMachine::new();
+        let base = Instant::now();
+
+        let dragged = machine.handle_at(DesktopEvent::PetDragged, base).unwrap();
+        assert_eq!(dragged.emotion, Emotion::Curious);
+
+        // Клик проходит, хотя перетаскивание было только что: у него свой ключ.
+        // Приоритет happy равен curious, поэтому ждём истечения ttl.
+        let clicked = machine
+            .handle_at(DesktopEvent::PetClicked, at(base, 4))
+            .expect("клик после перетаскивания не должен подавляться");
+        assert_eq!(clicked.emotion, Emotion::Happy);
+    }
+
+    #[test]
+    fn dragging_is_not_repeated_every_pixel() {
+        // §FR-2: перетаскивание не запускает реплику на каждом движении.
+        let mut machine = StateMachine::new();
+        let base = Instant::now();
+
+        assert!(machine.handle_at(DesktopEvent::PetDragged, base).is_ok());
+        for second in 1..25 {
+            assert!(
+                machine
+                    .handle_at(DesktopEvent::PetDragged, at(base, second))
+                    .is_err(),
+                "повтор на {second}-й секунде должен быть подавлен"
+            );
+        }
     }
 
     #[test]

@@ -51,13 +51,63 @@ Window {
     }
 
     MouseArea {
+        id: petMouse
         anchors.fill: parent
         acceptedButtons: Qt.LeftButton
 
+        // Порог отличает клик от перетаскивания. Без него дрожание руки
+        // на клике уносило бы питомца с места, а клик переставал работать.
+        readonly property int dragThreshold: 6
+
+        property point pressPoint
+        property bool dragging: false
+        property bool announced: false
+
+        onPressed: (mouse) => {
+            pressPoint = Qt.point(mouse.x, mouse.y)
+            dragging = false
+            announced = false
+        }
+
+        onPositionChanged: (mouse) => {
+            if (!pressed)
+                return
+
+            // Порог считается по координатам окна и только до начала
+            // перетаскивания: пока окно стоит на месте, они честные.
+            if (!dragging) {
+                const dx = mouse.x - pressPoint.x
+                const dy = mouse.y - pressPoint.y
+                if (Math.abs(dx) + Math.abs(dy) < dragThreshold)
+                    return
+
+                dragging = true
+
+                // Реплика — один раз за перетаскивание, а не на каждый
+                // пиксель (§FR-2). Заодно здесь запоминается опорная точка
+                // курсора.
+                announced = true
+                petModel.handleDragStart()
+                return
+            }
+
+            // Дальше окно двигается под курсором, и его координаты врут.
+            // Хост считает смещение по глобальной позиции курсора сам.
+            petModel.dragTick()
+        }
+
+        onReleased: {
+            if (dragging)
+                petModel.finishDrag()
+            dragging = false
+        }
+
         // Клик по пузырю закрывает реплику, клик по питомцу — просит новую
-        // (§FR-6, §FR-2). Правый клик и перетаскивание появятся вместе
-        // с контекстным меню окна; пока меню живёт в трее.
+        // (§FR-6, §FR-2).
         onClicked: (mouse) => {
+            if (dragging)
+                return
+
             const inBubble = bubble.shown
                 && mouse.y < stage.height - petView.implicitHeight * petModel.scale
             if (inBubble)

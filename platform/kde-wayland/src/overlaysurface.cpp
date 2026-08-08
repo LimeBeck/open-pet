@@ -6,6 +6,7 @@
 
 #include <QElapsedTimer>
 #include <QGuiApplication>
+#include <QScreen>
 #include <QImage>
 #include <QLoggingCategory>
 #include <QQuickWindow>
@@ -75,6 +76,9 @@ bool OverlaySurface::configure(Corner corner, const QMargins &margins)
         return false;
     }
 
+    m_corner = corner;
+    m_margins = margins;
+
     layer->setLayer(LayerWindow::LayerTop);
     layer->setAnchors(anchorsFor(corner));
     layer->setMargins(margins);
@@ -92,6 +96,95 @@ bool OverlaySurface::configure(Corner corner, const QMargins &margins)
     connect(m_window, &QQuickWindow::heightChanged, this, &OverlaySurface::scheduleRegionUpdate);
 
     return true;
+}
+
+QPoint OverlaySurface::moveBy(int dx, int dy)
+{
+    if (!m_window || !m_layerShellAvailable)
+        return {};
+
+    LayerWindow *layer = LayerWindow::get(m_window);
+    if (!layer)
+        return {};
+
+    // Знак зависит от якоря: у правого края увеличение отступа двигает
+    // питомца влево, у левого — вправо. Без этого перетаскивание работало бы
+    // зеркально в двух углах из четырёх.
+    const bool anchoredRight = m_corner == Corner::BottomRight || m_corner == Corner::TopRight;
+    const bool anchoredBottom = m_corner == Corner::BottomRight || m_corner == Corner::BottomLeft;
+
+    const QScreen *screen = m_window->screen();
+    const QSize available = screen ? screen->availableSize() : QSize(4000, 4000);
+
+    // Питомец не должен уезжать за край: там его не достать мышью,
+    // а настройка окажется испорченной без видимой причины.
+    const int maxX = qMax(0, available.width() - m_window->width());
+    const int maxY = qMax(0, available.height() - m_window->height());
+
+    const int oldX = anchoredRight ? m_margins.right() : m_margins.left();
+    const int oldY = anchoredBottom ? m_margins.bottom() : m_margins.top();
+
+    const int newX = qBound(0, anchoredRight ? oldX - dx : oldX + dx, maxX);
+    const int newY = qBound(0, anchoredBottom ? oldY - dy : oldY + dy, maxY);
+
+    if (newX == oldX && newY == oldY)
+        return {};
+
+    QMargins updated = m_margins;
+    if (anchoredRight)
+        updated.setRight(newX);
+    else
+        updated.setLeft(newX);
+    if (anchoredBottom)
+        updated.setBottom(newY);
+    else
+        updated.setTop(newY);
+
+    m_margins = updated;
+    layer->setMargins(m_margins);
+    emit placementChanged(m_corner, m_margins);
+
+    // Возвращается смещение в координатах экрана, а не в отступах: у края
+    // оно меньше запрошенного, и без этого курсор оторвался бы от питомца.
+    return QPoint(anchoredRight ? oldX - newX : newX - oldX,
+                  anchoredBottom ? oldY - newY : newY - oldY);
+}
+
+bool OverlaySurface::moveToNextScreen()
+{
+    if (!m_window || !m_layerShellAvailable)
+        return false;
+
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    if (screens.size() < 2)
+        return false;
+
+    const int current = screens.indexOf(m_window->screen());
+    QScreen *target = screens.at((current + 1) % screens.size());
+
+    LayerWindow *layer = LayerWindow::get(m_window);
+    if (!layer)
+        return false;
+
+    // Поверхность layer-shell принадлежит выходу с момента создания.
+    // Смена выхода у показанной поверхности композитором игнорируется,
+    // поэтому её приходится пересоздавать: скрыть, назначить экран, показать.
+    const bool wasVisible = m_window->isVisible();
+    if (wasVisible)
+        m_window->setVisible(false);
+
+    layer->setScreen(target);
+    m_window->setScreen(target);
+
+    if (wasVisible)
+        m_window->setVisible(true);
+
+    const QString actual = m_window->screen() ? m_window->screen()->name() : QStringLiteral("?");
+    qCInfo(logOverlay).noquote()
+        << QStringLiteral("перенос на экран %1, фактически %2").arg(target->name(), actual);
+
+    scheduleRegionUpdate();
+    return m_window->screen() == target;
 }
 
 void OverlaySurface::scheduleRegionUpdate()
