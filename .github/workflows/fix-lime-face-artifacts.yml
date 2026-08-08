@@ -1,0 +1,113 @@
+name: Fix Lime sprite artifacts
+
+on:
+  push:
+    branches:
+      - agent/fix-lime-face-artifacts
+    paths:
+      - .github/workflows/fix-lime-face-artifacts.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-lime-face-artifacts
+          fetch-depth: 0
+
+      - name: Install Pillow
+        run: python -m pip install --quiet pillow
+
+      - name: Fix sprite artifacts and manifest
+        shell: bash
+        run: |
+          python <<'PY'
+          from PIL import Image
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path('assets/builtin-pet')
+          sheet_path = root / 'lime.png'
+          manifest_path = root / 'manifest.json'
+
+          sheet = Image.open(sheet_path).convert('RGBA')
+          assert sheet.size == (1536, 1456), sheet.size
+          cell_w, cell_h = 192, 208
+
+          # 1) Последний ряд, 3-й кадр слева (curious, row=6, col=2):
+          # убрать лишний тёмный кластер справа от настоящего носа.
+          x0, y0 = 2 * cell_w, 6 * cell_h
+          frame = sheet.crop((x0, y0, x0 + cell_w, y0 + cell_h))
+
+          # Срезаем выступающий дубликат носа и восстанавливаем край морды.
+          for y in range(53, 59):
+              for x in range(140, 145):
+                  frame.putpixel((x, y), (0, 0, 0, 0))
+
+          edge = [(139,53),(139,54),(139,55),(139,56),(138,57),(138,58),
+                  (138,59),(138,60),(138,61),(137,62),(137,63)]
+          for p in edge:
+              frame.putpixel(p, (8, 40, 12, 255))
+
+          fills = {
+              (138,53):(37,145,8,255), (138,54):(58,172,0,255),
+              (138,55):(45,165,6,255), (137,56):(51,182,5,255),
+              (137,57):(42,178,4,255), (137,58):(15,141,4,255),
+              (136,59):(9,154,5,255), (136,60):(6,151,11,255),
+              (136,61):(5,135,22,255), (135,62):(6,121,30,255),
+          }
+          for p, rgba in fills.items():
+              frame.putpixel(p, rgba)
+
+          for y in range(59, 66):
+              for x in range(139, 145):
+                  if x >= 140 or y <= 61:
+                      frame.putpixel((x, y), (0, 0, 0, 0))
+
+          for p in [(139,62),(139,63),(139,64),(139,65),(140,66),(140,67),(141,68)]:
+              frame.putpixel(p, (10, 30, 12, 255))
+
+          sheet.paste(frame, (x0, y0))
+
+          # 2) Предпоследний ряд (busy, row=5): в пяти фронтальных кадрах
+          # генерация дала третий центральный рог. Канонический idle уже имеет
+          # правильную геометрию двух рогов, поэтому берём только небольшой
+          # участок макушки между ними; остальной кадр остаётся неизменным.
+          idle = sheet.crop((0, 0, cell_w, cell_h))
+          scalp_box = (64, 0, 95, 58)
+          scalp_patch = idle.crop(scalp_box)
+          for col in (0, 1, 3, 4, 5):
+              bx, by = col * cell_w, 5 * cell_h
+              busy = sheet.crop((bx, by, bx + cell_w, by + cell_h))
+              busy.paste(scalp_patch, scalp_box[:2])
+              sheet.paste(busy, (bx, by))
+
+          sheet.save(sheet_path, format='PNG')
+
+          digest = hashlib.sha256(sheet_path.read_bytes()).hexdigest()
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          manifest['version'] = '2.0.2'
+          manifest['sheetSha256'] = digest
+          manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          # Базовые проверки контракта ассета.
+          assert Image.open(sheet_path).size == (1536, 1456)
+          assert digest == hashlib.sha256(sheet_path.read_bytes()).hexdigest()
+          assert manifest['grid'] == {'columns': 8, 'rows': 7, 'cellWidth': 192, 'cellHeight': 208}
+          print('sheet sha256:', digest)
+          PY
+
+      - name: Commit fixed assets and remove temporary workflow
+        shell: bash
+        run: |
+          rm .github/workflows/fix-lime-face-artifacts.yml
+          git config user.name "OpenAI Agent"
+          git config user.email "noreply@openai.com"
+          git add assets/builtin-pet/lime.png assets/builtin-pet/manifest.json .github/workflows/fix-lime-face-artifacts.yml
+          git commit -m "fix: remove Lime sprite face artifacts"
+          git push origin HEAD:agent/fix-lime-face-artifacts
