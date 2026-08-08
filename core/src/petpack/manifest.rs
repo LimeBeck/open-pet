@@ -39,6 +39,52 @@ pub struct Animation {
     pub frames: u32,
     #[serde(rename = "frameDurationMs")]
     pub frame_duration_ms: u32,
+    /// Процедурное движение ([ADR-009](../../../docs/adr/0009-procedural-motion-layer.md)).
+    ///
+    /// Необязательное: его отсутствие означает тождественное преобразование,
+    /// поэтому все существующие пакеты продолжают работать без изменений.
+    #[serde(default)]
+    pub motion: Option<Motion>,
+}
+
+/// Плавность перехода между ключевыми точками.
+///
+/// Набор закрыт схемой намеренно: Pet Pack остаётся данными, и произвольное
+/// выражение здесь означало бы исполняемый код в пакете (§FR-8).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Easing {
+    Linear,
+    InQuad,
+    OutQuad,
+    InOutQuad,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub struct Keyframe {
+    /// Доля от длительности, 0.0..1.0.
+    pub at: f64,
+    /// Смещение в логических пикселях относительно покоя.
+    #[serde(default)]
+    pub x: f64,
+    #[serde(default)]
+    pub y: f64,
+    /// Плавность подхода к **следующей** точке.
+    #[serde(default = "default_easing")]
+    pub easing: Easing,
+}
+
+fn default_easing() -> Easing {
+    Easing::Linear
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct Motion {
+    #[serde(rename = "durationMs")]
+    pub duration_ms: u32,
+    #[serde(rename = "loop", default)]
+    pub loop_: bool,
+    pub keyframes: Vec<Keyframe>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

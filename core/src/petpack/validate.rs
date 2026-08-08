@@ -26,11 +26,28 @@ pub struct Limits {
     pub max_frames_per_animation: u32,
     pub min_frame_duration_ms: u32,
     pub max_frame_duration_ms: u32,
+
+    /// Пределы процедурного движения (ADR-009). Недоверенный манифест
+    /// не должен создавать тысячи точек интерполяции или требовать резерв
+    /// размером с экран.
+    pub max_keyframes: usize,
+    pub min_motion_duration_ms: u32,
+    pub max_motion_duration_ms: u32,
+    /// Предел смещения в логических пикселях. Ограничивает и резерв
+    /// поверхности: на него закладывается место вокруг питомца.
+    pub max_motion_offset: f64,
 }
 
 impl Default for Limits {
     fn default() -> Self {
         Self {
+            max_keyframes: 32,
+            min_motion_duration_ms: 100,
+            max_motion_duration_ms: 10_000,
+            // 256 логических пикселей: этого хватает на прыжок вдвое выше
+            // питомца и заведомо меньше любого разумного экрана.
+            max_motion_offset: 256.0,
+
             max_sheet_dimension: 8192,
             max_texture_bytes: 16 * 1024 * 1024,
             min_declared_coverage: 0.40,
@@ -77,6 +94,20 @@ pub struct Report {
 }
 
 impl Report {
+    fn error(&mut self, message: String) {
+        self.findings.push(Finding {
+            severity: Severity::Error,
+            message,
+        });
+    }
+
+    fn warning(&mut self, message: String) {
+        self.findings.push(Finding {
+            severity: Severity::Warning,
+            message,
+        });
+    }
+
     pub fn is_acceptable(&self) -> bool {
         !self.findings.iter().any(|f| f.severity == Severity::Error)
     }
@@ -125,6 +156,7 @@ pub fn validate(
     check_grid(manifest, sheet_width, sheet_height, limits, &mut report);
     check_animations(manifest, &mut report, limits);
     check_coverage(manifest, limits, &mut report);
+    check_motion(manifest, limits, &mut report);
     check_states(manifest, &mut report);
 
     report
@@ -263,6 +295,95 @@ fn check_animations(manifest: &Manifest, report: &mut Report, limits: &Limits) {
     }
 }
 
+/// Проверка процедурного движения (ADR-009).
+///
+/// Движение описывается данными, но данные приходят из недоверенного пакета:
+/// точек может быть сколько угодно, доли — вне диапазона, порядок — обратный.
+/// Всё это ломает интерполяцию в хосте, поэтому отсекается здесь.
+fn check_motion(manifest: &Manifest, limits: &Limits, report: &mut Report) {
+    for (state, animation) in &manifest.animations {
+        let Some(motion) = &animation.motion else {
+            continue;
+        };
+
+        if motion.keyframes.len() < 2 {
+            report.error(format!(
+                "«{state}»: движению нужны хотя бы две ключевые точки, а их {}",
+                motion.keyframes.len()
+            ));
+            continue;
+        }
+
+        if motion.keyframes.len() > limits.max_keyframes {
+            report.error(format!(
+                "«{state}»: {} ключевых точек при пределе {}",
+                motion.keyframes.len(),
+                limits.max_keyframes
+            ));
+            continue;
+        }
+
+        if motion.duration_ms < limits.min_motion_duration_ms
+            || motion.duration_ms > limits.max_motion_duration_ms
+        {
+            report.error(format!(
+                "«{state}»: длительность движения {} мс вне диапазона {}–{}",
+                motion.duration_ms, limits.min_motion_duration_ms, limits.max_motion_duration_ms
+            ));
+        }
+
+        let first = motion.keyframes.first().expect("длина проверена выше");
+        let last = motion.keyframes.last().expect("длина проверена выше");
+
+        if first.at != 0.0 || last.at != 1.0 {
+            report.error(format!(
+                "«{state}»: движение должно начинаться на 0.0 и заканчиваться на 1.0,                  а идёт с {} по {}",
+                first.at, last.at
+            ));
+        }
+
+        // Зацикленное движение, у которого конец не совпадает с началом,
+        // даёт рывок на каждом повторе.
+        if motion.loop_ && (first.x != last.x || first.y != last.y) {
+            report.warning(format!(
+                "«{state}»: зацикленное движение не возвращается в исходную точку —                  будет рывок на каждом повторе"
+            ));
+        }
+
+        let mut previous = -1.0_f64;
+        for (index, frame) in motion.keyframes.iter().enumerate() {
+            if !(0.0..=1.0).contains(&frame.at) || !frame.at.is_finite() {
+                report.error(format!(
+                    "«{state}»: точка {index} стоит на {}, а должна быть в 0.0–1.0",
+                    frame.at
+                ));
+                continue;
+            }
+
+            if frame.at <= previous {
+                report.error(format!(
+                    "«{state}»: точки должны идти по возрастанию, а {} стоит после {}",
+                    frame.at, previous
+                ));
+            }
+            previous = frame.at;
+
+            if !frame.x.is_finite() || !frame.y.is_finite() {
+                report.error(format!("«{state}»: точка {index} задана нечислом"));
+                continue;
+            }
+
+            if frame.x.abs() > limits.max_motion_offset || frame.y.abs() > limits.max_motion_offset
+            {
+                report.error(format!(
+                    "«{state}»: смещение {},{} превышает предел {} px",
+                    frame.x, frame.y, limits.max_motion_offset
+                ));
+            }
+        }
+    }
+}
+
 fn check_coverage(manifest: &Manifest, limits: &Limits, report: &mut Report) {
     let grid = &manifest.grid;
     let cells = u64::from(grid.columns) * u64::from(grid.rows);
@@ -303,6 +424,168 @@ fn check_states(manifest: &Manifest, report: &mut Report) {
 
 #[cfg(test)]
 mod tests {
+    // --- процедурное движение (ADR-009) ---
+
+    fn with_motion(motion_json: &str) -> Manifest {
+        let raw = format!(
+            r#"{{
+                "schemaVersion": 1,
+                "renderer": "sprite-sheet",
+                "id": "org.example.motion",
+                "name": "Motion",
+                "version": "1.0.0",
+                "sheet": "sheet.png",
+                "grid": {{ "columns": 2, "rows": 1, "cellWidth": 64, "cellHeight": 64 }},
+                "animations": {{
+                    "idle": {{ "row": 0, "frames": 2, "frameDurationMs": 200, "motion": {motion_json} }}
+                }},
+                "fallbackAnimation": "idle",
+                "locales": ["ru"]
+            }}"#
+        );
+        Manifest::parse(raw.as_bytes()).expect("манифест разбирается")
+    }
+
+    fn motion_errors(motion_json: &str) -> Vec<String> {
+        let manifest = with_motion(motion_json);
+        let report = validate(&manifest, 128, 64, &Limits::default());
+        report.errors().map(|f| f.message.clone()).collect()
+    }
+
+    #[test]
+    fn motion_is_optional() {
+        // Существующие пакеты продолжают работать без изменений — это
+        // условие ADR-009, а не удобство.
+        let raw = br#"{
+            "schemaVersion": 1, "renderer": "sprite-sheet",
+            "id": "a", "name": "A", "version": "1.0.0", "sheet": "s.png",
+            "grid": { "columns": 2, "rows": 1, "cellWidth": 64, "cellHeight": 64 },
+            "animations": { "idle": { "row": 0, "frames": 2, "frameDurationMs": 200 } },
+            "fallbackAnimation": "idle", "locales": ["ru"]
+        }"#;
+        let manifest = Manifest::parse(raw).expect("разбирается без motion");
+        assert!(manifest.animations["idle"].motion.is_none());
+    }
+
+    #[test]
+    fn valid_motion_passes() {
+        let errors = motion_errors(
+            r#"{ "durationMs": 600, "loop": true, "keyframes": [
+                { "at": 0.0, "x": 0, "y": 0 },
+                { "at": 0.5, "x": 0, "y": -24, "easing": "in-out-quad" },
+                { "at": 1.0, "x": 0, "y": 0 }
+            ] }"#,
+        );
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    #[test]
+    fn keyframes_must_be_ordered() {
+        // Обратный порядок ломает интерполяцию в хосте: он ищет отрезок
+        // по возрастанию доли и не найдёт его.
+        let errors = motion_errors(
+            r#"{ "durationMs": 600, "keyframes": [
+                { "at": 0.0 }, { "at": 0.8 }, { "at": 0.3 }, { "at": 1.0 }
+            ] }"#,
+        );
+        assert!(
+            errors.iter().any(|e| e.contains("возрастанию")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn keyframes_must_span_the_whole_duration() {
+        let errors = motion_errors(
+            r#"{ "durationMs": 600, "keyframes": [
+                { "at": 0.2 }, { "at": 0.9 }
+            ] }"#,
+        );
+        assert!(errors.iter().any(|e| e.contains("0.0")), "{errors:?}");
+    }
+
+    #[test]
+    fn offsets_are_bounded() {
+        // Резерв поверхности закладывается по этим числам: без предела
+        // недоверенный пакет потребовал бы окно размером с экран.
+        let errors = motion_errors(
+            r#"{ "durationMs": 600, "keyframes": [
+                { "at": 0.0 }, { "at": 1.0, "y": -9000 }
+            ] }"#,
+        );
+        assert!(
+            errors.iter().any(|e| e.contains("превышает предел")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn too_many_keyframes_rejected() {
+        let points: Vec<String> = (0..200)
+            .map(|i| format!(r#"{{ "at": {} }}"#, i as f64 / 199.0))
+            .collect();
+        let errors = motion_errors(&format!(
+            r#"{{ "durationMs": 600, "keyframes": [{}] }}"#,
+            points.join(",")
+        ));
+        assert!(
+            errors.iter().any(|e| e.contains("при пределе")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn duration_is_bounded() {
+        let fast = motion_errors(r#"{ "durationMs": 1, "keyframes": [{"at":0.0},{"at":1.0}] }"#);
+        assert!(fast.iter().any(|e| e.contains("вне диапазона")), "{fast:?}");
+
+        let slow =
+            motion_errors(r#"{ "durationMs": 999999, "keyframes": [{"at":0.0},{"at":1.0}] }"#);
+        assert!(slow.iter().any(|e| e.contains("вне диапазона")), "{slow:?}");
+    }
+
+    #[test]
+    fn single_keyframe_is_not_motion() {
+        let errors = motion_errors(r#"{ "durationMs": 600, "keyframes": [{"at":0.0}] }"#);
+        assert!(
+            errors.iter().any(|e| e.contains("две ключевые")),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn looping_motion_that_does_not_return_warns() {
+        // Не ошибка: пакет работоспособен. Но на каждом повторе будет рывок.
+        let manifest = with_motion(
+            r#"{ "durationMs": 600, "loop": true, "keyframes": [
+                { "at": 0.0, "y": 0 }, { "at": 1.0, "y": -20 }
+            ] }"#,
+        );
+        let report = validate(&manifest, 128, 64, &Limits::default());
+        assert!(report.is_acceptable(), "это предупреждение, а не отказ");
+        assert!(report.warnings().any(|w| w.message.contains("рывок")));
+    }
+
+    #[test]
+    fn unknown_easing_is_rejected_by_the_parser() {
+        // Набор плавностей закрыт схемой: произвольное значение означало бы
+        // выражение в пакете, а Pet Pack — данные (§FR-8).
+        let raw = br#"{
+            "schemaVersion": 1, "renderer": "sprite-sheet",
+            "id": "a", "name": "A", "version": "1.0.0", "sheet": "s.png",
+            "grid": { "columns": 2, "rows": 1, "cellWidth": 64, "cellHeight": 64 },
+            "animations": { "idle": { "row": 0, "frames": 2, "frameDurationMs": 200,
+                "motion": { "durationMs": 600, "keyframes": [
+                    { "at": 0.0, "easing": "eval(alert(1))" }, { "at": 1.0 }
+                ] } } },
+            "fallbackAnimation": "idle", "locales": ["ru"]
+        }"#;
+        assert!(
+            Manifest::parse(raw).is_err(),
+            "неизвестная плавность не должна разбираться"
+        );
+    }
+
     use super::*;
     use crate::petpack::manifest::Manifest;
 
