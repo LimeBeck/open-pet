@@ -4,9 +4,9 @@
   "id": "dev.limebeck.lime",
   "name": "Лайм",
   "description": "Пиксельный зелёный лис в тёмном худи",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "sheet": "lime.png",
-  "sheetSha256": "d9285b47ca0eeb10f276822063eca38eb10970b75a29dcd0850e8cd65f7d0519",
+  "sheetSha256": "7e5544aae89d5b66ab77732aaad050eb4b52493b024bdee6a5e5ec72b3fc08e7",
   "grid": {
     "columns": 8,
     "rows": 7,
