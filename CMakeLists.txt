@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(open-pet
-    VERSION 0.1.0
+    VERSION 0.2.0
     DESCRIPTION "Desktop AI Pet for KDE Plasma Wayland"
     LANGUAGES CXX
 )
