@@ -36,7 +36,7 @@ struct Settings {
     QString llmModel;
     QString llmProject;
     QString llmRegion;
-    int llmTimeoutMs = 2500;
+    int llmTimeoutMs = 6000;
 
     // Идентификатор активного Pet Pack (§9). Пустой — встроенный питомец.
     QString activePackId;

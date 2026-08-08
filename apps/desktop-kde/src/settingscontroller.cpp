@@ -53,6 +53,11 @@ SettingsController::SettingsController(CoreBridge *core, LlmClient *llm, QObject
     , m_settings(Settings::load())
 {
     if (m_llm) {
+        connect(m_llm, &LlmClient::modelsListed, this, [this](const QStringList &models) {
+            m_availableModels = models;
+            emit changed();
+        });
+
         connect(m_llm, &LlmClient::healthChecked, this,
                 [this](bool ok, bool modelFound, const QString &detail) {
                     // Формулировки разные не для красоты: «нет связи»

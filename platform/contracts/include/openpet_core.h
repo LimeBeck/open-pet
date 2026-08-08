@@ -22,7 +22,7 @@
 extern "C" {
 #endif
 
-#define OPENPET_ABI_VERSION 8
+#define OPENPET_ABI_VERSION 9
 
 // Длина ключа cooldown с завершающим нулём.
 #define OPENPET_COOLDOWN_KEY_SIZE 32
@@ -253,6 +253,16 @@ int32_t openpet_core_accept_token_response(OpenPetCore *core, const char *raw, u
 // Готовит запрос проверки связи (§FR-7, health_check). Тела у него нет —
 // это GET, и хост различает запросы по пустому body.
 int32_t openpet_core_build_health_request(OpenPetCore *core, OpenPetLlmRequest *out_request);
+
+#define OPENPET_MODEL_LIST_SIZE 4096
+
+// Разбирает тот же ответ и выкладывает имена моделей через перевод строки.
+// Возвращает число моделей, 0 если список пуст, <0 если ответ не разобран.
+//
+// Отдельно от проверки связи: та отвечает «да» или «нет», а списком
+// заполняется выпадающий список в настройках.
+int32_t openpet_core_accept_model_list(OpenPetCore *core, const char *raw, uintptr_t raw_len,
+                                       char *out_names, uintptr_t names_size);
 
 // Разбирает ответ проверки связи. Возвращает:
 //   1 — провайдер ответил и настроенная модель у него есть;

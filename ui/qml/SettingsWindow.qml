@@ -220,11 +220,30 @@ Window {
                 }
 
                 Label { text: qsTr("Модель"); visible: root.model.llmKind > 0 }
-                TextField {
+                // Список заполняется после проверки связи — до неё провайдер
+                // ничего о себе не рассказывал. Поле остаётся редактируемым:
+                // модель может быть новее нашего списка, и запрещать ввести
+                // её вручную значило бы ломать работающую настройку.
+                ComboBox {
                     Layout.fillWidth: true
                     visible: root.model.llmKind > 0
-                    text: root.model.llmModel
-                    onEditingFinished: root.model.llmModel = text
+                    editable: true
+                    model: root.model.availableModels
+
+                    Component.onCompleted: editText = root.model.llmModel
+                    onAccepted: root.model.llmModel = editText
+                    onActivated: root.model.llmModel = editText
+
+                    // Список приходит асинхронно; уже введённое не затираем.
+                    Connections {
+                        target: root.model
+                        function onChanged() {
+                            if (root.model.llmModel !== "")
+                                return
+                            if (root.model.availableModels.length > 0)
+                                root.model.llmModel = root.model.availableModels[0]
+                        }
+                    }
                 }
 
                 Label { text: qsTr("Таймаут, мс"); visible: root.model.llmKind > 0 }
@@ -331,7 +350,10 @@ Window {
                 Label {
                     Layout.fillWidth: true
                     wrapMode: Text.Wrap
-                    text: root.model.healthStatus
+                    text: root.model.availableModels.length > 0
+                        ? qsTr("%1 · моделей: %2").arg(root.model.healthStatus)
+                                                  .arg(root.model.availableModels.length)
+                        : root.model.healthStatus
                 }
             }
 

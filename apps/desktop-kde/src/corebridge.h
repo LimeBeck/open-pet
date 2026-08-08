@@ -111,6 +111,8 @@ public:
     bool buildHealthRequest(LlmRequest *out) const;
     // 1 — провайдер ответил и модель есть, 0 — модели нет, <0 — не разобрано.
     int acceptHealthResponse(const QByteArray &raw) const;
+    // Список моделей из того же ответа — для выпадающего списка в настройках.
+    QStringList acceptModelList(const QByteArray &raw) const;
 
     // Локаль реплик. Неизвестные теги ядро приводит к английскому (§7).
     void setLocale(const QString &tag);

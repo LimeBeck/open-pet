@@ -62,6 +62,9 @@ signals:
     // Это разные вещи: без разделения пользователь чинил бы сеть вместо
     // опечатки в названии модели.
     void healthChecked(bool ok, bool modelFound, const QString &detail);
+    // Список моделей провайдера. Приходит вместе с проверкой связи:
+    // отдельный запрос за тем же самым был бы лишним обращением к сети.
+    void modelsListed(const QStringList &models);
 
 private:
     void applyProxy(const QUrl &url);

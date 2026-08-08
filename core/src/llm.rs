@@ -244,12 +244,28 @@ pub fn parse_health_response(provider: &Provider, raw: &[u8]) -> Result<Vec<Stri
         // AI Studio отдаёт имена с приставкой «models/», а пользователь
         // пишет модель без неё. Приставка снимается здесь, чтобы сравнение
         // не пришлось учить исключениям.
+        //
+        // Заодно отсеиваются модели, не умеющие генерацию: в том же списке
+        // приходят модели эмбеддингов, и предлагать их пользователю значит
+        // предлагать выбрать заведомо неработающее.
         Provider::GoogleAiStudio { .. } => value
             .get("models")
             .and_then(|m| m.as_array())
             .map(|items| {
                 items
                     .iter()
+                    .filter(|item| {
+                        item.get("supportedGenerationMethods")
+                            .and_then(|m| m.as_array())
+                            .map(|methods| {
+                                methods
+                                    .iter()
+                                    .any(|m| m.as_str() == Some("generateContent"))
+                            })
+                            // Поля может не быть — тогда не отсеиваем: лучше
+                            // показать лишнее, чем спрятать рабочее.
+                            .unwrap_or(true)
+                    })
                     .filter_map(|item| item.get("name").and_then(|n| n.as_str()))
                     .map(|name| name.trim_start_matches("models/").to_string())
                     .collect()
@@ -313,9 +329,18 @@ pub enum LlmError {
     NotAPhrase,
 }
 
-/// Таймаут по умолчанию. Питомец — украшение: реплика, пришедшая через
-/// пять секунд после события, уже не про это событие (§FR-6).
-pub const DEFAULT_TIMEOUT_MS: u32 = 2500;
+/// Таймаут по умолчанию.
+///
+/// Задумывался как 2500 мс из соображения «реплика, пришедшая через пять
+/// секунд после события, уже не про это событие» (§FR-6). Живой замер
+/// на Gemini показал 3.2–4.1 с, то есть при таком таймауте до питомца
+/// не доходило **ни одной** реплики — все шесть попыток падали на шаблон.
+///
+/// 6000 мс выбраны выше наблюдаемого максимума с запасом. Цена честная:
+/// при недоступном провайдере питомец молчит эти шесть секунд, а потом
+/// говорит шаблоном. Уменьшить её можно только показом шаблона сразу
+/// с заменой на ответ модели — см. открытые вопросы ADR-008.
+pub const DEFAULT_TIMEOUT_MS: u32 = 6000;
 
 /// Инструкция модели. Ограничения из §FR-6 перечислены явно, потому что
 /// именно их нарушение делает ответ непригодным.
@@ -409,7 +434,15 @@ pub fn build_request(provider: &Provider, request: &PhraseRequest) -> RequestPla
                 region, project, region, model
             ),
             format!(
-                r#"{{"systemInstruction":{{"parts":[{{"text":"{}"}}]}},"contents":[{{"role":"user","parts":[{{"text":"{}"}}]}}],"generationConfig":{{"maxOutputTokens":60}}}}"#,
+                // Потолок токенов высокий не ради длинной фразы: её длину
+                // задаёт инструкция. Модели Gemini тратят часть бюджета
+                // на размышление, и при потолке в 60 токенов на ответ
+                // не остаётся ничего — приходит пустой content.
+                //
+                // Отключить размышление полем thinkingConfig не вышло:
+                // часть моделей отвечает на него «invalid argument».
+                // Проверено на живом gemini-flash-latest.
+                r#"{{"systemInstruction":{{"parts":[{{"text":"{}"}}]}},"contents":[{{"role":"user","parts":[{{"text":"{}"}}]}}],"generationConfig":{{"maxOutputTokens":512}}}}"#,
                 system, user
             ),
         ),
@@ -423,7 +456,15 @@ pub fn build_request(provider: &Provider, request: &PhraseRequest) -> RequestPla
                 escape_json(model)
             ),
             format!(
-                r#"{{"systemInstruction":{{"parts":[{{"text":"{}"}}]}},"contents":[{{"role":"user","parts":[{{"text":"{}"}}]}}],"generationConfig":{{"maxOutputTokens":60}}}}"#,
+                // Потолок токенов высокий не ради длинной фразы: её длину
+                // задаёт инструкция. Модели Gemini тратят часть бюджета
+                // на размышление, и при потолке в 60 токенов на ответ
+                // не остаётся ничего — приходит пустой content.
+                //
+                // Отключить размышление полем thinkingConfig не вышло:
+                // часть моделей отвечает на него «invalid argument».
+                // Проверено на живом gemini-flash-latest.
+                r#"{{"systemInstruction":{{"parts":[{{"text":"{}"}}]}},"contents":[{{"role":"user","parts":[{{"text":"{}"}}]}}],"generationConfig":{{"maxOutputTokens":512}}}}"#,
                 system, user
             ),
         ),
@@ -811,6 +852,26 @@ mod tests {
     }
 
     #[test]
+    fn ai_studio_hides_models_that_cannot_generate() {
+        // В том же списке приходят модели эмбеддингов. Предлагать их
+        // пользователю значит предлагать выбрать заведомо неработающее.
+        let raw = br#"{"models":[
+            {"name":"models/gemini-2.0-flash","supportedGenerationMethods":["generateContent"]},
+            {"name":"models/text-embedding-004","supportedGenerationMethods":["embedContent"]}
+        ]}"#;
+        let models = parse_health_response(&ai_studio(), raw).expect("список разобран");
+        assert_eq!(models, vec!["gemini-2.0-flash".to_string()]);
+    }
+
+    #[test]
+    fn ai_studio_keeps_models_without_the_methods_field() {
+        // Поля может не быть — лучше показать лишнее, чем спрятать рабочее.
+        let raw = br#"{"models":[{"name":"models/gemini-experimental"}]}"#;
+        let models = parse_health_response(&ai_studio(), raw).expect("список разобран");
+        assert_eq!(models, vec!["gemini-experimental".to_string()]);
+    }
+
+    #[test]
     fn ai_studio_model_names_lose_their_prefix() {
         // Провайдер отдаёт «models/gemini-2.0-flash», пользователь пишет
         // «gemini-2.0-flash». Без снятия приставки проверка связи сообщала бы
@@ -1045,8 +1106,14 @@ mod tests {
         assert!(!result.chars().any(char::is_control), "{result:?}");
     }
 
-    // Реплика, пришедшая через пять секунд после события, уже не про него.
-    // Проверка на этапе компиляции: значение — константа, и тест из него
-    // ничего нового не узнал бы.
-    const _: () = assert!(DEFAULT_TIMEOUT_MS <= 3000);
+    // Верхняя граница таймаута. Проверка на этапе компиляции: значение —
+    // константа, и обычный тест из неё ничего нового не узнал бы.
+    //
+    // Было 3000 из соображения «реплика через пять секунд уже не про это
+    // событие». Замер на живом Gemini показал 3.2–4.1 с: при таком пределе
+    // до питомца не доходило ни одной реплики, и LLM выглядела нерабочей.
+    //
+    // Восемь секунд — граница осмысленного: дольше молчащий питомец хуже
+    // питомца с шаблоном, и это уже не настройка, а другое поведение.
+    const _: () = assert!(DEFAULT_TIMEOUT_MS <= 8000);
 }

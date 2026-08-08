@@ -15,7 +15,7 @@ use std::os::raw::{c_char, c_int, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Mutex;
 
-pub const ABI_VERSION: u32 = 8;
+pub const ABI_VERSION: u32 = 9;
 const COOLDOWN_KEY_SIZE: usize = 32;
 const PHRASE_SIZE: usize = 192;
 
@@ -931,6 +931,42 @@ pub unsafe extern "C" fn openpet_core_build_health_request(
             1
         }
         Ok(None) => 0,
+        Err(_) => -2,
+    }
+}
+
+/// # Safety
+/// `core`, `raw` и `out_names` должны быть валидными указателями.
+#[no_mangle]
+pub unsafe extern "C" fn openpet_core_accept_model_list(
+    core: *mut Core,
+    raw: *const c_char,
+    raw_len: usize,
+    out_names: *mut c_char,
+    names_size: usize,
+) -> c_int {
+    let Some(core) = core.as_ref() else { return -1 };
+    if raw.is_null() || out_names.is_null() || names_size == 0 {
+        return -1;
+    }
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let provider = core.provider.lock().ok()?.clone()?;
+        let bytes = std::slice::from_raw_parts(raw as *const u8, raw_len);
+        llm::parse_health_response(&provider, bytes).ok()
+    }));
+
+    match outcome {
+        Ok(Some(models)) => {
+            let joined = models.join("\n");
+            let buffer = std::slice::from_raw_parts_mut(out_names, names_size);
+            buffer.fill(0);
+            // Список может не поместиться целиком; обрезка по границе символа
+            // даст меньше моделей, но не сломанное имя.
+            fill_utf8(buffer, &joined);
+            c_int::try_from(models.len()).unwrap_or(c_int::MAX)
+        }
+        Ok(None) => -1,
         Err(_) => -2,
     }
 }

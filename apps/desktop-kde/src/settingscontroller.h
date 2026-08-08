@@ -41,6 +41,9 @@ class SettingsController : public QObject
     Q_PROPERTY(int llmTimeoutMs READ llmTimeoutMs WRITE setLlmTimeoutMs NOTIFY changed)
     // Есть ли на машине учётные данные Google. Vertex не принимает ключ,
     // и поле для ключа ему показывать нельзя — это сбивает с толку.
+    // Модели, которые провайдер назвал при последней проверке связи.
+    // Пустой список означает «не спрашивали», а не «моделей нет».
+    Q_PROPERTY(QStringList availableModels READ availableModels NOTIFY changed)
     Q_PROPERTY(bool googleCredentialsFound READ googleCredentialsFound NOTIFY changed)
     Q_PROPERTY(QString googleCredentialsPath READ googleCredentialsPath CONSTANT)
     Q_PROPERTY(int proxyMode READ proxyMode WRITE setProxyMode NOTIFY changed)
@@ -98,6 +101,7 @@ public:
     void setLlmProject(const QString &value);
     QString llmRegion() const { return m_settings.llmRegion; }
     void setLlmRegion(const QString &value);
+    QStringList availableModels() const { return m_availableModels; }
     bool googleCredentialsFound() const;
     QString googleCredentialsPath() const;
     int llmTimeoutMs() const { return m_settings.llmTimeoutMs; }
@@ -172,5 +176,6 @@ private:
     bool m_hasApiKey = false;
     QString m_restartNotice;
     QString m_healthStatus;
+    QStringList m_availableModels;
     QString m_packStatus;
 };

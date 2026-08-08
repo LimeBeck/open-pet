@@ -7,6 +7,7 @@
 #include <QNetworkProxyFactory>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QTimer>
 
@@ -143,7 +144,16 @@ void LlmClient::sendPhraseRequest()
     QNetworkReply *reply = m_network.post(request, plan.body.toUtf8());
     m_inFlight = reply;
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply] { finish(reply); });
+    // Задержка провайдера — то, по чему выбирается таймаут. Без замера
+    // это число остаётся догадкой, а от него зависит, заговорит питомец
+    // вообще или всегда будет падать на шаблон.
+    auto *clock = new QElapsedTimer;
+    clock->start();
+    connect(reply, &QNetworkReply::finished, this, [this, reply, clock] {
+        qCDebug(logLlm, "ответ за %lld мс", clock->elapsed());
+        delete clock;
+        finish(reply);
+    });
 }
 
 void LlmClient::setVertexCredentialsPath(const QString &path)
@@ -336,7 +346,15 @@ void LlmClient::sendHealthRequest()
             return;
         }
 
-        const int verdict = m_core->acceptHealthResponse(reply->readAll());
+        const QByteArray payload = reply->readAll();
+
+        // Список выкладывается из того же ответа: второй запрос за тем же
+        // самым был бы лишним обращением к сети.
+        const QStringList models = m_core->acceptModelList(payload);
+        if (!models.isEmpty())
+            emit modelsListed(models);
+
+        const int verdict = m_core->acceptHealthResponse(payload);
         if (verdict < 0) {
             emit healthChecked(false, false, tr("ответ не разобран"));
             return;
@@ -356,15 +374,31 @@ void LlmClient::finish(QNetworkReply *reply)
     reply->deleteLater();
 
     if (reply->error() != QNetworkReply::NoError) {
-        // Текст ошибки Qt не содержит ключа, но может содержать URL.
-        // В журнал уходит только вид ошибки (§9).
-        const QString reason = QString::number(int(reply->error()));
-        qCWarning(logLlm) << "запрос не удался, код" << reason << "— показываем шаблон";
+        const QVariant status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute);
+        const QString reason = status.isValid() ? QStringLiteral("HTTP %1").arg(status.toInt())
+                                                : QStringLiteral("сеть (%1)").arg(int(reply->error()));
+
+        qCWarning(logLlm).noquote() << "запрос не удался:" << reason << "— показываем шаблон";
+
+        // Тело ошибки провайдера пишется в журнал намеренно. Пользовательских
+        // данных в нём быть не может: наружу уходят только эмоция и локаль
+        // (§US-06), поэтому и эхо запроса ничего чужого не содержит.
+        // Без этого «HTTP 400» остаётся загадкой, а провайдер обычно
+        // объясняет, что именно ему не понравилось.
+        const QByteArray body = reply->readAll();
+        if (!body.isEmpty())
+            qCDebug(logLlm).noquote() << "ответ провайдера:" << QString::fromUtf8(body).left(600);
+
         emit phraseFailed(reason);
         return;
     }
 
     const QByteArray raw = reply->readAll();
+
+    // Сырой ответ на уровне debug: наружу уходят только эмоция и локаль,
+    // поэтому чужого в ответе быть не может, а разбирать «почему в пузыре
+    // оказалось это» без него невозможно.
+    qCDebug(logLlm).noquote() << "сырой ответ:" << QString::fromUtf8(raw).left(800);
 
     // Разбор ответа — в ядре: это недоверенный JSON, и провайдер мог
     // оказаться не тем, за кого себя выдаёт (ADR-007).

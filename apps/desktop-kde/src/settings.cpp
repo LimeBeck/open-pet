@@ -58,7 +58,7 @@ Settings Settings::load()
     settings.llmModel = store.value(QStringLiteral("llm/model")).toString();
     settings.llmProject = store.value(QStringLiteral("llm/project")).toString();
     settings.llmRegion = store.value(QStringLiteral("llm/region")).toString();
-    settings.llmTimeoutMs = store.value(QStringLiteral("llm/timeoutMs"), 2500).toInt();
+    settings.llmTimeoutMs = store.value(QStringLiteral("llm/timeoutMs"), 6000).toInt();
 
     settings.activePackId = store.value(QStringLiteral("pet/activePackId")).toString();
 

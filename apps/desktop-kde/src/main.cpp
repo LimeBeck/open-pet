@@ -188,6 +188,13 @@ int main(int argc, char *argv[])
     // Проверка связи из терминала: нажать кнопку в окне нечем ни при
     // проверке, ни в скрипте установки.
     if (qEnvironmentVariableIsSet("OPENPET_HEALTHCHECK")) {
+        QObject::connect(&llm, &LlmClient::modelsListed, [](const QStringList &models) {
+            qCInfo(logApp).noquote()
+                << QStringLiteral("моделей у провайдера: %1").arg(models.size());
+            for (const QString &name : models)
+                qCInfo(logApp).noquote() << "  " << name;
+        });
+
         QObject::connect(&llm, &LlmClient::healthChecked,
                          [](bool ok, bool modelFound, const QString &detail) {
                              qCInfo(logApp).noquote()

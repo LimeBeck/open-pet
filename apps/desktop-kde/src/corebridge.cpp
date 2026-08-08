@@ -414,6 +414,21 @@ bool CoreBridge::buildHealthRequest(LlmRequest *out) const
     return true;
 }
 
+QStringList CoreBridge::acceptModelList(const QByteArray &raw) const
+{
+    if (!m_core)
+        return {};
+
+    QByteArray names(OPENPET_MODEL_LIST_SIZE, '\0');
+    if (openpet_core_accept_model_list(m_core, raw.constData(), size_t(raw.size()), names.data(),
+                                       size_t(names.size()))
+        < 0)
+        return {};
+
+    return QString::fromUtf8(names.constData())
+        .split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+}
+
 int CoreBridge::acceptHealthResponse(const QByteArray &raw) const
 {
     if (!m_core)
