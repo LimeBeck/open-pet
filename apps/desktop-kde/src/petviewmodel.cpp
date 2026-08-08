@@ -4,14 +4,15 @@
 #include "llmclient.h"
 #include "overlaysurface.h"
 
-#include <QCursor>
 #include <QLoggingCategory>
+#include <QScreen>
 #include <QGuiApplication>
 #include <QScreen>
 
 Q_DECLARE_LOGGING_CATEGORY(logApp)
 
 #include <QLoggingCategory>
+#include <QScreen>
 
 Q_DECLARE_LOGGING_CATEGORY(logCore)
 
@@ -228,33 +229,24 @@ void PetViewModel::dismissPhrase()
 
 void PetViewModel::handleDragStart()
 {
-    m_lastCursor = QCursor::pos();
-
     if (m_core)
         m_core->pushPetDragged();
 }
 
-void PetViewModel::dragTick()
+QPoint PetViewModel::beginDrag()
 {
-    if (!m_overlay)
-        return;
+    return m_overlay ? m_overlay->beginDrag() : QPoint();
+}
 
-    const QPoint now = QCursor::pos();
-    const QPoint delta = now - m_lastCursor;
-
-    // Опорная точка обновляется всегда, даже когда окно упёрлось в край
-    // и сдвинулось меньше запрошенного. Иначе накапливалась бы разница,
-    // и после возврата от края питомец прыгал бы рывком.
-    m_lastCursor = now;
-
-    if (delta.isNull())
-        return;
-
-    m_overlay->moveBy(delta.x(), delta.y());
+void PetViewModel::endDrag(int x, int y)
+{
+    if (m_overlay)
+        m_overlay->endDrag(QPoint(x, y));
 }
 
 void PetViewModel::finishDrag()
 {
+
     // Положение сохраняется на отпускании, а не на каждом движении:
     // иначе перетаскивание через весь экран писало бы конфиг сотни раз.
     emit placementSettled();

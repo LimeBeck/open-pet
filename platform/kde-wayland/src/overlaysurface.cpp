@@ -98,6 +98,120 @@ bool OverlaySurface::configure(Corner corner, const QMargins &margins)
     return true;
 }
 
+QPoint OverlaySurface::beginDrag()
+{
+    if (!m_window || !m_layerShellAvailable)
+        return {};
+
+    if (m_dragging) {
+        // Предыдущее перетаскивание не завершилось: отпускание может
+        // не прийти вовсе, если захват мыши потерян. Отказывать здесь —
+        // значит ломать перетаскивание навсегда до перезапуска, что
+        // однажды и случилось. Поэтому состояние восстанавливается.
+        qCWarning(logOverlay, "предыдущее перетаскивание не завершилось, восстанавливаю");
+        restoreSurface();
+    }
+
+    LayerWindow *layer = LayerWindow::get(m_window);
+    if (!layer)
+        return {};
+
+    const QScreen *screen = m_window->screen();
+    const QSize area = screen ? screen->availableSize() : QSize(1920, 1080);
+
+    m_restSize = m_window->size();
+
+    // Где питомец находится сейчас в координатах рабочей области.
+    const bool anchoredRight = m_corner == Corner::BottomRight || m_corner == Corner::TopRight;
+    const bool anchoredBottom = m_corner == Corner::BottomRight || m_corner == Corner::BottomLeft;
+
+    const int x = anchoredRight ? area.width() - m_restSize.width() - m_margins.right()
+                                : m_margins.left();
+    const int y = anchoredBottom ? area.height() - m_restSize.height() - m_margins.bottom()
+                                 : m_margins.top();
+
+    // Поверхность растягивается на всю рабочую область: якорь по четырём
+    // сторонам заставляет композитор выдать её размером с экран.
+    m_dragging = true;
+    layer->setMargins(QMargins());
+    layer->setAnchors(LayerWindow::Anchors(LayerWindow::AnchorTop) | LayerWindow::AnchorBottom
+                      | LayerWindow::AnchorLeft | LayerWindow::AnchorRight);
+
+    qCDebug(logOverlay).noquote()
+        << QStringLiteral("перетаскивание: поверхность %1x%2, питомец в %3,%4")
+               .arg(area.width())
+               .arg(area.height())
+               .arg(x)
+               .arg(y);
+
+    return QPoint(x, y);
+}
+
+void OverlaySurface::restoreSurface()
+{
+    if (!m_window)
+        return;
+
+    LayerWindow *layer = LayerWindow::get(m_window);
+    if (!layer)
+        return;
+
+    m_dragging = false;
+
+    // Размер возвращается явно. Пока поверхность была привязана к четырём
+    // сторонам, композитор выдал ей размер экрана и сам обратно его
+    // не уменьшит: при двух якорях размер задаёт клиент.
+    layer->setAnchors(anchorsFor(m_corner));
+    layer->setDesiredSize(m_restSize);
+    layer->setMargins(m_margins);
+    m_window->resize(m_restSize);
+
+    scheduleRegionUpdate();
+}
+
+void OverlaySurface::endDrag(const QPoint &petPosition)
+{
+    if (!m_window || !m_dragging)
+        return;
+
+    LayerWindow *layer = LayerWindow::get(m_window);
+    if (!layer) {
+        m_dragging = false;
+        return;
+    }
+
+    const QScreen *screen = m_window->screen();
+    const QSize area = screen ? screen->availableSize() : QSize(1920, 1080);
+
+    const bool anchoredRight = m_corner == Corner::BottomRight || m_corner == Corner::TopRight;
+    const bool anchoredBottom = m_corner == Corner::BottomRight || m_corner == Corner::BottomLeft;
+
+    // Обратный перевод: из положения внутри рабочей области — в отступы
+    // от того угла, к которому привязан питомец.
+    const int right = area.width() - petPosition.x() - m_restSize.width();
+    const int bottom = area.height() - petPosition.y() - m_restSize.height();
+
+    QMargins updated;
+    if (anchoredRight)
+        updated.setRight(qMax(0, right));
+    else
+        updated.setLeft(qMax(0, petPosition.x()));
+    if (anchoredBottom)
+        updated.setBottom(qMax(0, bottom));
+    else
+        updated.setTop(qMax(0, petPosition.y()));
+
+    m_margins = updated;
+    restoreSurface();
+
+    emit placementChanged(m_corner, m_margins);
+}
+
+QScreen *OverlaySurface::screen() const
+{
+    return m_window ? m_window->screen() : nullptr;
+}
+
 QPoint OverlaySurface::moveBy(int dx, int dy)
 {
     if (!m_window || !m_layerShellAvailable)

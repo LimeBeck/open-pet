@@ -4,6 +4,9 @@
 #include <QObject>
 #include <QRegion>
 #include <QPoint>
+#include <QSize>
+
+class QScreen;
 #include <QTimer>
 
 class QQuickWindow;
@@ -38,6 +41,22 @@ public:
     // или геометрии окна.
     void scheduleRegionUpdate();
 
+    // Растягивает поверхность на рабочую область экрана и возвращает
+    // положение питомца внутри неё (§FR-2).
+    //
+    // Нужно, чтобы во время перетаскивания окно **не двигалось**. Пока
+    // оно двигалось, смещение приходилось считать в его же системе отсчёта,
+    // которую композитор обновляет асинхронно: замер на 3284 событиях показал
+    // средний модуль дельты 10.4 px при плавном движении руки и 9.6% дельт
+    // больше 30 px — петля неустойчива по устройству, а не по коэффициентам.
+    QPoint beginDrag();
+
+    // Возвращает поверхность к размеру питомца и ставит отступы так, чтобы
+    // он оказался там, куда его перетащили.
+    void endDrag(const QPoint &petPosition);
+
+    bool isDragging() const { return m_dragging; }
+
     // Сдвигает питомца на dx, dy пикселей (§FR-2).
     //
     // У layer-shell поверхности нет координат: положение задаётся якорем
@@ -57,6 +76,11 @@ public:
     // на котором питомец находится.
     bool moveToNextScreen();
 
+    // Экран, на котором окно по мнению Qt: при разных масштабах
+    // это первое, что стоит проверить.
+    QScreen *screen() const;
+    QQuickWindow *window() const { return m_window; }
+
     Corner corner() const { return m_corner; }
     QMargins margins() const { return m_margins; }
 
@@ -74,9 +98,13 @@ signals:
 
 private:
     void rebuildRegion();
+    // Возвращает поверхность к размеру и якорю питомца.
+    void restoreSurface();
 
     QQuickWindow *m_window = nullptr;
     Corner m_corner = Corner::BottomRight;
+    bool m_dragging = false;
+    QSize m_restSize;
     QMargins m_margins;
     QTimer m_regionTimer;
     bool m_layerShellAvailable = false;

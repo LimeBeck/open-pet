@@ -8,20 +8,60 @@ Window {
     // (ADR-002), который пересчитывается и при появлении пузыря.
     readonly property int bubbleArea: 76
 
-    width: Math.round(petView.implicitWidth * petModel.scale)
-    height: Math.round((petView.implicitHeight + bubbleArea) * petModel.scale)
+    // Размер окна в покое. Во время перетаскивания окно растянуто на экран,
+    // и эти числа остаются мерой самой рамки питомца.
+    readonly property int restWidth: Math.round(petView.implicitWidth * petModel.scale)
+    readonly property int restHeight: Math.round((petView.implicitHeight + bubbleArea) * petModel.scale)
+
+    width: restWidth
+    height: restHeight
     visible: false
     color: "transparent"
     title: "open-pet"
 
+    // Рамка размером с окно в покое. Двигается именно она, а не питомец:
+    // между ними разница в место под пузырь, и если считать положение
+    // по питомцу, а ставить отступы по окну, питомец после отпускания
+    // проседает ровно на эту разницу.
+    Item {
+        id: frame
+
+        width: root.restWidth
+        height: root.restHeight
+
+        // Координаты держатся, пока окно ещё растянуто: если сбросить их
+        // сразу, на кадр-другой питомец покажется в левом верхнем углу
+        // растянутого окна.
+        property point dragPos: Qt.point(0, 0)
+
+        // Питомец не уходит за край экрана. Захват мыши продолжает слать
+        // координаты и после того, как курсор покинул окно, поэтому без
+        // ограничения рамка уезжала на тысячи пикселей: замер показал
+        // старт 1728 и конец 3200 при ширине экрана 1920. На отпускании
+        // отступ обрезался в ноль, и питомец прилипал к краю.
+        //
+        // Перетащить его на другой монитор всё равно нельзя — поверхность
+        // растянута на один экран. Для переезда есть пункт трея (ADR-002).
+        function place(nx, ny) {
+            dragPos = Qt.point(Math.max(0, Math.min(nx, root.width - width)),
+                               Math.max(0, Math.min(ny, root.height - height)))
+        }
+        readonly property bool floating: petMouse.dragging || root.width > root.restWidth
+        x: floating ? dragPos.x : 0
+        y: floating ? dragPos.y : 0
+
     Item {
         id: stage
         anchors.fill: parent
+
         scale: petModel.scale
         transformOrigin: Item.Center
 
         Pet {
             id: petView
+
+            // Во время перетаскивания положение задаётся вручную: якоря
+            // прижали бы питомца к краю растянутого на экран окна.
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
 
@@ -49,6 +89,7 @@ Window {
             anchors.bottomMargin: -18
         }
     }
+    }
 
     MouseArea {
         id: petMouse
@@ -60,6 +101,7 @@ Window {
         readonly property int dragThreshold: 6
 
         property point pressPoint
+        property point lastPoint
         property bool dragging: false
         property bool announced: false
 
@@ -73,32 +115,47 @@ Window {
             if (!pressed)
                 return
 
-            // Порог считается по координатам окна и только до начала
-            // перетаскивания: пока окно стоит на месте, они честные.
             if (!dragging) {
-                const dx = mouse.x - pressPoint.x
-                const dy = mouse.y - pressPoint.y
-                if (Math.abs(dx) + Math.abs(dy) < dragThreshold)
+                const movedX = mouse.x - pressPoint.x
+                const movedY = mouse.y - pressPoint.y
+                if (Math.abs(movedX) + Math.abs(movedY) < dragThreshold)
                     return
 
-                dragging = true
+                // Окно растягивается на экран и дальше не двигается.
+                // Пока оно двигалось, смещение приходилось считать в его же
+                // системе отсчёта, которую композитор обновляет асинхронно —
+                // петля неустойчива по устройству (ADR-002).
+                const spot = petModel.beginDrag()
+                frame.place(spot.x, spot.y)
 
-                // Реплика — один раз за перетаскивание, а не на каждый
-                // пиксель (§FR-2). Заодно здесь запоминается опорная точка
-                // курсора.
+                dragging = true
                 announced = true
                 petModel.handleDragStart()
                 return
             }
 
-            // Дальше окно двигается под курсором, и его координаты врут.
-            // Хост считает смещение по глобальной позиции курсора сам.
-            petModel.dragTick()
+            // Система отсчёта теперь неподвижна, поэтому дельта честная.
+            frame.place(frame.dragPos.x + mouse.x - pressPoint.x,
+                        frame.dragPos.y + mouse.y - pressPoint.y)
+            pressPoint = Qt.point(mouse.x, mouse.y)
+        }
+
+        // Захват мыши можно потерять и без отпускания — тогда onReleased
+        // не придёт вовсе. Без этого обработчика питомец остался бы
+        // в растянутом окне, а следующее перетаскивание не началось бы.
+        onCanceled: {
+            if (dragging) {
+                petModel.endDrag(Math.round(frame.dragPos.x), Math.round(frame.dragPos.y))
+                petModel.finishDrag()
+            }
+            dragging = false
         }
 
         onReleased: {
-            if (dragging)
+            if (dragging) {
+                petModel.endDrag(Math.round(frame.dragPos.x), Math.round(frame.dragPos.y))
                 petModel.finishDrag()
+            }
             dragging = false
         }
 
