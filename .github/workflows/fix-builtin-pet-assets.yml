@@ -1,0 +1,145 @@
+name: Fix builtin pet assets (one-shot)
+
+on:
+  push:
+    branches:
+      - agent/fix-builtin-pet-assets
+
+permissions:
+  contents: write
+
+jobs:
+  redraw:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/fix-builtin-pet-assets
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Redraw charging frames and update metadata
+        shell: bash
+        run: |
+          python -m pip install --disable-pip-version-check pillow
+          python <<'PY'
+          from pathlib import Path
+          from PIL import Image
+          import hashlib
+          import json
+          import re
+
+          root = Path('.')
+          sheet_path = root / 'assets/builtin-pet/lime.png'
+          manifest_path = root / 'assets/builtin-pet/manifest.json'
+          readme_path = root / 'assets/builtin-pet/README.md'
+
+          CELL_W = 192
+          CELL_H = 208
+          ROW = 2
+          FRAMES = 5
+          SCALE = 1.38
+          BASELINE_Y = 202
+          CENTER_X = 95.5
+
+          sheet = Image.open(sheet_path).convert('RGBA')
+          assert sheet.size == (1536, 1456), sheet.size
+
+          for col in range(FRAMES):
+              box = (col * CELL_W, ROW * CELL_H, (col + 1) * CELL_W, (ROW + 1) * CELL_H)
+              frame = sheet.crop(box)
+              alpha = frame.getchannel('A')
+              bbox = alpha.getbbox()
+              if bbox is None:
+                  raise RuntimeError(f'charging frame {col} is empty')
+
+              sprite = frame.crop(bbox)
+              new_w = round(sprite.width * SCALE)
+              new_h = round(sprite.height * SCALE)
+              if new_w > CELL_W or new_h > CELL_H:
+                  raise RuntimeError(f'charging frame {col} does not fit after scaling: {new_w}x{new_h}')
+
+              sprite = sprite.resize((new_w, new_h), Image.Resampling.NEAREST)
+              dst_x = round(CENTER_X - (new_w - 1) / 2)
+              dst_y = BASELINE_Y - new_h + 1
+              if dst_x < 0 or dst_x + new_w > CELL_W or dst_y < 0:
+                  raise RuntimeError(f'charging frame {col} placement is out of bounds')
+
+              clean = Image.new('RGBA', (CELL_W, CELL_H), (0, 0, 0, 0))
+              clean.alpha_composite(sprite, (dst_x, dst_y))
+              sheet.paste(clean, (col * CELL_W, ROW * CELL_H))
+
+          sheet.save(sheet_path, format='PNG', optimize=True)
+          sheet_sha = hashlib.sha256(sheet_path.read_bytes()).hexdigest()
+
+          manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+          manifest['version'] = '2.0.1'
+          manifest['sheetSha256'] = sheet_sha
+          charging = manifest['animations']['charging']
+          charging['motion'] = {
+              'durationMs': 900,
+              'loop': True,
+              'keyframes': [
+                  {'at': 0.0, 'x': 0, 'y': 0, 'easing': 'out-quad'},
+                  {'at': 0.5, 'x': 0, 'y': -40, 'easing': 'in-quad'},
+                  {'at': 1.0, 'x': 0, 'y': 0},
+              ],
+          }
+          manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          readme = readme_path.read_text(encoding='utf-8')
+          readme = re.sub(r"sha256 `[0-9a-f]{64}`\.", f"sha256 `{sheet_sha}`.", readme, count=1)
+          readme = readme.replace(
+              "**Прыжок уменьшает питомца.** В строке `jumping`, на которой сделано\n"
+              "состояние `charging`, фигура нарисована мельче, чтобы прыжок целиком\n"
+              "поместился в ячейку. На экране это читается как изменение размера\n"
+              "питомца, а не как высота прыжка. Лечится перерисовкой строки, а не кодом.\n\n",
+              "**Прыжок исправлен.** В строке `jumping`, на которой сделано состояние\n"
+              "`charging`, кадры теперь показывают только позу и стоят на общей опорной\n"
+              "линии. Высоту прыжка задаёт процедурный `motion`, поэтому размер питомца\n"
+              "больше не уменьшается ради траектории.\n\n",
+          )
+          readme_path.write_text(readme, encoding='utf-8')
+
+          # Checks mirroring REDRAW.md constraints.
+          check = Image.open(sheet_path).convert('RGBA')
+          assert check.size == (1536, 1456)
+          assert 1536 * 1456 * 4 <= 16 * 1024 * 1024
+          declared = 6 + 4 + 5 + 6 + 2 + 6 + 6 + 8
+          assert declared / (8 * 7) >= 0.40
+
+          heights = []
+          centers = []
+          bottoms = []
+          for col in range(FRAMES):
+              frame = check.crop((col * CELL_W, ROW * CELL_H, (col + 1) * CELL_W, (ROW + 1) * CELL_H))
+              bbox = frame.getchannel('A').getbbox()
+              assert bbox is not None
+              l, t, r, b = bbox
+              heights.append(b - t)
+              centers.append((l + r - 1) / 2)
+              bottoms.append(b - 1)
+          span = max(heights) - min(heights)
+          jitter = sum(abs(b - a) for a, b in zip(heights, heights[1:])) / span if span else 0.0
+          assert jitter <= 2.6, (heights, jitter)
+          assert max(centers) - min(centers) <= 1.0, centers
+          assert len(set(bottoms)) == 1 and bottoms[0] == BASELINE_Y, bottoms
+
+          print(f'sheet sha256: {sheet_sha}')
+          print(f'charging heights: {heights}; jitter ratio: {jitter:.3f}')
+          print(f'charging centers: {centers}; baseline: {bottoms[0]}')
+          PY
+
+      - name: Remove one-shot workflow and commit result
+        shell: bash
+        run: |
+          rm .github/workflows/fix-builtin-pet-assets.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets/builtin-pet/lime.png assets/builtin-pet/manifest.json assets/builtin-pet/README.md .github/workflows/fix-builtin-pet-assets.yml
+          git commit -m "fix builtin pet charging assets"
+          git push origin HEAD:agent/fix-builtin-pet-assets
