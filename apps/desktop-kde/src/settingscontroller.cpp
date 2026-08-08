@@ -4,8 +4,10 @@
 #include "corebridge.h"
 #include "llmclient.h"
 #include "secretstore.h"
+#include "sheetquality.h"
 
 #include <QFile>
+#include <QImage>
 #include <QLoggingCategory>
 
 Q_DECLARE_LOGGING_CATEGORY(logApp)
@@ -286,13 +288,36 @@ void SettingsController::importPack(const QUrl &fileUrl)
         return;
     }
 
+    // Качество листа проверяется после установки, а не вместо неё: пакет
+    // с дрожащими кадрами исправен, просто нарисован неаккуратно, и решать
+    // тут пользователю (ADR-005).
+    QStringList quality;
+    if (!sheetPath.isEmpty()) {
+        static const QStringList kStates { QStringLiteral("idle"),        QStringLiteral("happy"),
+                                           QStringLiteral("curious"),     QStringLiteral("sleepy"),
+                                           QStringLiteral("charging"),    QStringLiteral("low_battery"),
+                                           QStringLiteral("notification"), QStringLiteral("busy") };
+
+        QList<CoreBridge::Animation> layout;
+        layout.reserve(kStates.size());
+        for (const QString &state : kStates)
+            layout.append(m_core->animationFor(state));
+
+        quality = SheetQuality::inspect(QImage(sheetPath), layout, kStates);
+    }
+
     // Выбор запоминается: §9 требует хранить активный пакет между запусками.
     m_settings.activePackId = activePackId();
     m_settings.save();
 
-    m_packStatus = result.report.isEmpty()
+    QStringList notes;
+    if (!result.report.isEmpty())
+        notes << result.report;
+    notes << quality;
+
+    m_packStatus = notes.isEmpty()
         ? tr("✓ установлен: %1").arg(activePackId())
-        : tr("✓ установлен: %1\nзамечания:\n%2").arg(activePackId(), result.report);
+        : tr("✓ установлен: %1\nзамечания:\n%2").arg(activePackId(), notes.join(QLatin1Char('\n')));
 
     emit petPackChanged(sheetPath);
     emit changed();
