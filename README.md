@@ -7,9 +7,9 @@ Desktop AI Pet — постоянно доступный анимированн�
 эмоцию и анимацию, показывает короткие реплики. Работает полностью локально;
 LLM — опциональное дополнение, включаемое явно.
 
-> **Статус:** M7. Питомец реагирует на события системы, показывает реплики
-> из шаблонов или подключённой LLM, импортирует Pet Pack и настраивается
-> из окна. Остались автозапуск, диагностика и упаковка.
+> **Статус:** M7, версия 0.2.0. Питомец реагирует на события системы,
+> говорит шаблонами или через LLM, импортирует Pet Pack, перетаскивается
+> мышью и настраивается из окна. Остались диагностика и упаковка.
 
 <table>
 <tr>
@@ -161,6 +161,8 @@ QT_FORCE_STDERR_LOGGING=1 QT_LOGGING_RULES='openpet.*=true' ./build/apps/desktop
 | `OPENPET_HEALTHCHECK` | проверить связь с провайдером и выйти; код возврата 0 — модель найдена |
 | `OPENPET_IMPORT_PACK` | установить Pet Pack из архива по пути и выйти |
 | `OPENPET_GOOGLE_ADC` | путь к учётным данным Google вместо стандартного |
+| `OPENPET_LLM_URL`, `OPENPET_LLM_MODEL`, `OPENPET_LLM_PROJECT`, `OPENPET_LLM_REGION`, `OPENPET_LLM_TIMEOUT_MS` | перекрывают сохранённые настройки провайдера на один запуск |
+| `OPENPET_LLM_KEY` | ключ на один запуск. Постоянное место — KWallet: переменная осела бы в истории командной строки |
 
 Питомца нельзя закрыть кликом — у окна нет ни рамки, ни клавиатуры. Выход через
 трей или `pkill -x open-pet`.
@@ -233,10 +235,15 @@ kwriteconfig6 --file kwinrc --group Plugins --key openpet-active-windowEnabled f
 | M1 | Walking skeleton: репозиторий, CI, host, tray, встроенный питомец | закрыт |
 | M2 | Behavior core: шаблонные реплики, история, локализация | закрыт |
 | M3 | KDE base integration: idle, UPower, sleep/resume, session | закрыт |
-| M4 | Context integrations: KWin active-app, MPRIS, уведомления | **текущий** |
-| M5 | Pet Pack v1: schema, validator, импорт, локализации | — |
-| M6 | LLM gateway: Ollama, OpenAI-compatible, Vertex AI, secrets | — |
-| M7 | Hardening и alpha: настройки, diagnostics, perf, packaging | — |
+| M4 | Context integrations: KWin active-app, MPRIS, уведомления | закрыт |
+| M5 | Pet Pack v1: schema, validator, импорт, локализации | закрыт |
+| M6 | LLM gateway: Ollama, OpenAI-совместимый, Vertex AI, AI Studio | закрыт |
+| M7 | Hardening и alpha: настройки, автозапуск, perf, packaging | **текущий** |
+
+Из Definition of Done (§13) остаются два пункта: восьмичасовой soak-тест
+и цель §7 по памяти — 55 МиБ на одном мониторе против 60, но 67 на двух,
+и разница приходится на потоки драйвера. Подробности и замеры —
+в [`docs/reference-system.md`](docs/reference-system.md).
 
 Все семь ADR приняты. Спецификация — v0.3: §7 переведён на `Private_Dirty`
 ([ADR-006](docs/adr/0006-memory-metric.md)), §FR-8 — на спрайтовый лист

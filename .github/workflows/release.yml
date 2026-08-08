@@ -77,6 +77,49 @@ jobs:
       - name: Состав архива
         run: tar --zstd -tf "$ASSET"
 
+      # Список изменений собирается из коммитов между тегами и группируется
+      # по типу. Автогенерация GitHub даёт плоский список заголовков вперемешку
+      # с правками опечаток — по нему нельзя понять, что появилось нового.
+      - name: Список изменений
+        run: |
+          PREVIOUS=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -n "$PREVIOUS" ]; then
+            RANGE="${PREVIOUS}..${GITHUB_REF_NAME}"
+            echo "изменения с $PREVIOUS"
+          else
+            RANGE="$GITHUB_REF_NAME"
+            echo "первый релиз"
+          fi
+
+          section() {
+            # $1 — префиксы через |, $2 — заголовок
+            local body
+            body=$(git log --no-merges --pretty=format:'%s' "$RANGE" \
+                   | grep -E "^($1)(\(.*\))?:" || true)
+            [ -z "$body" ] && return 0
+            printf '### %s\n\n' "$2" >> changelog.md
+            # Из заголовка убирается технический префикс: «feat(M6): текст».
+            echo "$body" | sed -E 's/^[a-z]+(\([^)]*\))?: *//' \
+                         | sed -E 's/^(.)/- \1/' >> changelog.md
+            printf '\n' >> changelog.md
+          }
+
+          section 'feat' 'Что нового'
+          section 'fix' 'Исправления'
+          section 'perf' 'Быстродействие'
+          section 'docs|spec' 'Документация и решения'
+          section 'test|ci|build|chore|refactor|style|release' 'Внутреннее'
+
+          if [ ! -s changelog.md ]; then
+            echo "- см. список коммитов" > changelog.md
+          fi
+
+          if [ -n "$PREVIOUS" ]; then
+            printf '\n**Полный список:** %s...%s\n' "$PREVIOUS" "$GITHUB_REF_NAME" >> changelog.md
+          fi
+
+          cat changelog.md
+
       - name: Публикация
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -84,7 +127,9 @@ jobs:
           # Архив собран из бинарников для x86_64 под Arch с Qt 6.11.
           # Обещать совместимость с другими дистрибутивами нельзя, и об этом
           # сказано прямо, а не мелким шрифтом.
-          cat > notes.md <<'NOTES'
+          cat changelog.md > notes.md
+          cat >> notes.md <<'NOTES'
+
           ## Установка
 
           ```bash
@@ -101,9 +146,10 @@ jobs:
 
           # --repo задан явно: так публикация не зависит от того, сумел ли gh
           # опознать репозиторий по состоянию git в контейнере.
+          # --generate-notes не используется: он добавляет свой плоский
+          # список поверх собранного и дублирует его.
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --notes-file notes.md \
-            --generate-notes \
             "$ASSET" "${ASSET}.sha256"
