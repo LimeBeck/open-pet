@@ -7,6 +7,7 @@
 
 use super::archive::{extract, ArchiveLimits};
 use super::manifest::{Manifest, Motion};
+use super::sha256::sha256_hex;
 use super::validate::{validate, Finding, Limits, Severity};
 
 /// Манифест встроенного питомца вшивается в ядро.
@@ -254,6 +255,23 @@ impl PackStore {
             }]);
         };
 
+        // Сумма, если объявлена, обязана совпадать. §9 говорит о хранении
+        // проверенного hash пакета — значит, где-то его надо проверять,
+        // и единственное место, где виден и манифест, и лист, — здесь.
+        if let Some(declared) = &manifest.sheet_sha256 {
+            let actual = sha256_hex(sheet_bytes);
+            if !actual.eq_ignore_ascii_case(declared) {
+                return Err(vec![Finding {
+                    severity: Severity::Error,
+                    message: format!(
+                        "сумма листа не совпадает: манифест обещает {}, файл даёт {}",
+                        &declared[..declared.len().min(16)],
+                        &actual[..16]
+                    ),
+                }]);
+            }
+        }
+
         let Some((sheet_width, sheet_height)) = super::png_dimensions(sheet_bytes) else {
             return Err(vec![Finding {
                 severity: Severity::Error,
@@ -301,6 +319,57 @@ impl PackStore {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn swapped_sheet_is_rejected() {
+        // Смысл суммы в манифесте: поймать подмену листа после сборки пакета.
+        // Без проверки поле выглядело гарантией, ничего не гарантируя.
+        use std::io::Write;
+
+        let manifest = format!(
+            r#"{{
+                "schemaVersion": 1, "renderer": "sprite-sheet",
+                "id": "org.example.swap", "name": "S", "version": "1.0.0",
+                "sheet": "sheet.png",
+                "sheetSha256": "{}",
+                "grid": {{ "columns": 1, "rows": 1, "cellWidth": 64, "cellHeight": 64 }},
+                "animations": {{ "idle": {{ "row": 0, "frames": 1, "frameDurationMs": 200 }} }},
+                "fallbackAnimation": "idle", "locales": ["ru"]
+            }}"#,
+            // Сумма от чего-то другого, не от листа в архиве.
+            super::super::sha256::sha256_hex(b"not this sheet")
+        );
+
+        // Минимальный настоящий PNG 64x64, чтобы дело дошло до проверки суммы.
+        let mut png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+        png.extend_from_slice(&13u32.to_be_bytes());
+        png.extend_from_slice(b"IHDR");
+        png.extend_from_slice(&64u32.to_be_bytes());
+        png.extend_from_slice(&64u32.to_be_bytes());
+
+        let mut buffer = Vec::new();
+        {
+            let mut zip = zip::ZipWriter::new(std::io::Cursor::new(&mut buffer));
+            let options: zip::write::FileOptions<()> = zip::write::FileOptions::default();
+            zip.start_file("manifest.json", options).unwrap();
+            zip.write_all(manifest.as_bytes()).unwrap();
+            zip.start_file("sheet.png", options).unwrap();
+            zip.write_all(&png).unwrap();
+            zip.finish().unwrap();
+        }
+
+        let mut store = PackStore::new();
+        let problems = store
+            .install(&buffer, &ArchiveLimits::default(), &Limits::default())
+            .expect_err("подменённый лист не должен устанавливаться");
+
+        assert!(
+            problems
+                .iter()
+                .any(|f| f.message.contains("сумма листа не совпадает")),
+            "{problems:?}"
+        );
+    }
+
+    #[test]
     fn envelope_covers_the_extreme_offsets() {
         // Резерв считается по всем анимациям пакета сразу: поверхность
         // получает его один раз и не меняет размер на каждое движение.
@@ -338,8 +407,38 @@ mod tests {
 
     #[test]
     fn pack_without_motion_needs_no_reserve() {
+        // Пакет собирается здесь, а не берётся встроенный: тест про отсутствие
+        // движения не должен зависеть от того, добавили движение питомцу или
+        // нет. На встроенном он уже однажды сломался именно так.
+        let raw = br#"{
+            "schemaVersion": 1, "renderer": "sprite-sheet",
+            "id": "a", "name": "A", "version": "1.0.0", "sheet": "s.png",
+            "grid": { "columns": 1, "rows": 1, "cellWidth": 64, "cellHeight": 64 },
+            "animations": { "idle": { "row": 0, "frames": 1, "frameDurationMs": 200 } },
+            "fallbackAnimation": "idle", "locales": ["ru"]
+        }"#;
+        let pack = ActivePack {
+            manifest: Manifest::parse(raw).expect("разбирается"),
+            source: SheetSource::Builtin,
+            sheet_width: 64,
+            sheet_height: 64,
+            pending_sheet: None,
+        };
+        assert_eq!(pack.motion_envelope(), (0, 0, 0, 0));
+    }
+
+    #[test]
+    fn builtin_pet_reserves_room_for_its_jump() {
+        // А это уже про встроенного: прыжок объявлен, значит резерв обязан
+        // быть — иначе питомец обрежется на верхней точке.
         let store = PackStore::new();
-        assert_eq!(store.active().motion_envelope(), (0, 0, 0, 0));
+        let (left, top, right, bottom) = store.active().motion_envelope();
+        assert!(top > 0, "прыжку нужен запас сверху");
+        assert_eq!(
+            (left, right, bottom),
+            (0, 0, 0),
+            "в стороны он не двигается"
+        );
     }
 
     use super::*;

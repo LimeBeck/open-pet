@@ -10,11 +10,13 @@
 pub mod active;
 pub mod archive;
 pub mod manifest;
+mod sha256;
 pub mod validate;
 
 pub use active::{ActivePack, AnimationFrames, PackStore, SheetSource};
 pub use archive::{extract, ArchiveLimits, ExtractedPack};
 pub use manifest::{Easing, Keyframe, Manifest, ManifestError, Motion};
+pub use sha256::sha256_hex;
 pub use validate::{validate, Finding, Limits, Report, Severity};
 
 /// Размеры PNG из заголовка IHDR.
