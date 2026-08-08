@@ -8,6 +8,7 @@
 
 #include <QFile>
 #include <QImage>
+#include <QStandardPaths>
 #include <QLoggingCategory>
 
 Q_DECLARE_LOGGING_CATEGORY(logApp)
@@ -187,6 +188,35 @@ void SettingsController::setLlmModel(const QString &value)
         return;
     m_settings.llmModel = value;
     markDirty();
+}
+
+void SettingsController::setLlmProject(const QString &value)
+{
+    if (m_settings.llmProject == value)
+        return;
+    m_settings.llmProject = value;
+    markDirty();
+}
+
+void SettingsController::setLlmRegion(const QString &value)
+{
+    if (m_settings.llmRegion == value)
+        return;
+    m_settings.llmRegion = value;
+    markDirty();
+}
+
+QString SettingsController::googleCredentialsPath() const
+{
+    return qEnvironmentVariableIsSet("OPENPET_GOOGLE_ADC")
+        ? qEnvironmentVariable("OPENPET_GOOGLE_ADC")
+        : QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+            + QStringLiteral("/gcloud/application_default_credentials.json");
+}
+
+bool SettingsController::googleCredentialsFound() const
+{
+    return QFile::exists(googleCredentialsPath());
 }
 
 void SettingsController::setLlmTimeoutMs(int value)

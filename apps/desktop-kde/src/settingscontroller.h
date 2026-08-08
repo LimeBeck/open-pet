@@ -36,7 +36,13 @@ class SettingsController : public QObject
     Q_PROPERTY(int llmKind READ llmKind WRITE setLlmKind NOTIFY changed)
     Q_PROPERTY(QString llmBaseUrl READ llmBaseUrl WRITE setLlmBaseUrl NOTIFY changed)
     Q_PROPERTY(QString llmModel READ llmModel WRITE setLlmModel NOTIFY changed)
+    Q_PROPERTY(QString llmProject READ llmProject WRITE setLlmProject NOTIFY changed)
+    Q_PROPERTY(QString llmRegion READ llmRegion WRITE setLlmRegion NOTIFY changed)
     Q_PROPERTY(int llmTimeoutMs READ llmTimeoutMs WRITE setLlmTimeoutMs NOTIFY changed)
+    // Есть ли на машине учётные данные Google. Vertex не принимает ключ,
+    // и поле для ключа ему показывать нельзя — это сбивает с толку.
+    Q_PROPERTY(bool googleCredentialsFound READ googleCredentialsFound NOTIFY changed)
+    Q_PROPERTY(QString googleCredentialsPath READ googleCredentialsPath CONSTANT)
     Q_PROPERTY(int proxyMode READ proxyMode WRITE setProxyMode NOTIFY changed)
     Q_PROPERTY(QString proxyHost READ proxyHost WRITE setProxyHost NOTIFY changed)
     Q_PROPERTY(int proxyPort READ proxyPort WRITE setProxyPort NOTIFY changed)
@@ -88,6 +94,12 @@ public:
     void setLlmBaseUrl(const QString &value);
     QString llmModel() const { return m_settings.llmModel; }
     void setLlmModel(const QString &value);
+    QString llmProject() const { return m_settings.llmProject; }
+    void setLlmProject(const QString &value);
+    QString llmRegion() const { return m_settings.llmRegion; }
+    void setLlmRegion(const QString &value);
+    bool googleCredentialsFound() const;
+    QString googleCredentialsPath() const;
     int llmTimeoutMs() const { return m_settings.llmTimeoutMs; }
     void setLlmTimeoutMs(int value);
 

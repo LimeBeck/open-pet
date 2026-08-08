@@ -186,13 +186,32 @@ Window {
                     onActivated: root.model.llmKind = currentIndex
                 }
 
-                Label { text: qsTr("Адрес"); visible: root.model.llmKind > 0 }
+                // Vertex адреса не имеет: URL строится из проекта и региона.
+                Label { text: qsTr("Адрес"); visible: root.model.llmKind > 0 && root.model.llmKind !== 3 }
                 TextField {
                     Layout.fillWidth: true
-                    visible: root.model.llmKind > 0
+                    visible: root.model.llmKind > 0 && root.model.llmKind !== 3
                     placeholderText: "http://127.0.0.1:11434"
                     text: root.model.llmBaseUrl
                     onEditingFinished: root.model.llmBaseUrl = text
+                }
+
+                Label { text: qsTr("Проект"); visible: root.model.llmKind === 3 }
+                TextField {
+                    Layout.fillWidth: true
+                    visible: root.model.llmKind === 3
+                    placeholderText: "my-gcp-project"
+                    text: root.model.llmProject
+                    onEditingFinished: root.model.llmProject = text
+                }
+
+                Label { text: qsTr("Регион"); visible: root.model.llmKind === 3 }
+                TextField {
+                    Layout.fillWidth: true
+                    visible: root.model.llmKind === 3
+                    placeholderText: "europe-west4"
+                    text: root.model.llmRegion
+                    onEditingFinished: root.model.llmRegion = text
                 }
 
                 Label { text: qsTr("Модель"); visible: root.model.llmKind > 0 }
@@ -232,6 +251,44 @@ Window {
                             root.model.storeApiKey(keyField.text)
                             keyField.text = ""
                         }
+                    }
+                }
+            }
+
+            // Vertex не принимает ключ, поэтому поля для ключа у него нет,
+            // а есть объяснение, чем он вместо ключа пользуется.
+            Frame {
+                Layout.fillWidth: true
+                visible: root.model.llmKind === 3
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    spacing: 6
+
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        text: qsTr("Vertex не использует ключ API. Нужен токен доступа — "
+                                   + "приложение получает его само из учётных данных Google "
+                                   + "и обновляет по мере устаревания.")
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        text: root.model.googleCredentialsFound
+                            ? qsTr("✓ учётные данные найдены: %1").arg(root.model.googleCredentialsPath)
+                            : qsTr("✗ учётных данных нет. Создайте их командой:\n"
+                                   + "gcloud auth application-default login")
+                        color: root.model.googleCredentialsFound ? palette.text : "#c0392b"
+                        font.family: root.model.googleCredentialsFound ? font.family : "monospace"
+                    }
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        opacity: 0.75
+                        text: qsTr("Учётные данные сервисного аккаунта не поддерживаются: "
+                                   + "их ключ требует подписи, для которой пришлось бы тащить "
+                                   + "криптобиблиотеку в ядро.")
                     }
                 }
             }
